@@ -5,7 +5,7 @@ from retinaface import RetinaFace
 from tensorflow.keras.preprocessing import image
 
 
-def detect_face(image_path, margin=10, img_size=(256, 256)):
+def detect_face(image_path, margin=10, img_size=(128, 128)):
     """
     Detects and crops faces from the input image using RetinaFace.
 
@@ -30,9 +30,7 @@ def detect_face(image_path, margin=10, img_size=(256, 256)):
         print(f"No faces detected in {image_path}")
         return None
 
-    # Print the keys of the first detected face for debugging
     face = results[0]
-    print(f"Detected face keys: {face.keys()}")
 
     x1, y1, x2, y2 = face['x1'], face['y1'], face['x2'], face['y2']
 
@@ -74,35 +72,32 @@ def process_images(input_folder, output_folder, label, img_size=(256, 256), marg
                 # Save the cropped face image to the output folder
                 output_img_path = os.path.join(output_folder, filename)
                 cv2.imwrite(output_img_path, cv2.cvtColor(cropped_face, cv2.COLOR_RGB2BGR))  # Convert back to BGR for saving
-                
-                # You can store the label and corresponding image in a list (or save them for future use)
-                # Example: (cropped_face, label) can be added to a list for later use in training
-                # For now, we'll just print to confirm label assignment
                 print(f"Processed {filename} with label {label}")
 
 def preprocess_data():
     """
     Preprocesses the data for training, validation, and testing by detecting faces and saving them to respective folders.
     """
-    print(dir(RetinaFace))
+    print(f"------------------DIRECTORY HERE: {os.getcwd()}")
     # Paths to the input data (folders with images)
-    train_folder_real = 'project_name/data/Dataset/Train/Real/'
-    train_folder_fake = 'project_name/data/Dataset/Train/Fake/'
-    validation_folder_real = 'project_name/data/Dataset/Validation/Real/'
-    validation_folder_fake = 'project_name/data/Dataset/Validation/Fake/'
-    test_folder_real = 'project_name/data/Dataset/Test/Real/'
-    test_folder_fake = 'project_name/data/Dataset/Test/Fake/'
+    train_folder_real = 'project_name/baby_dataset/Train/Real/'
+    train_folder_fake = 'project_name/baby_dataset/Train/Fake/'
+    validation_folder_real = 'project_name/baby_dataset/Validation/Real/'
+    validation_folder_fake = 'project_name/baby_dataset/Validation/Fake/'
+    test_folder_real = 'project_name/baby_dataset/Test/Real/'
+    test_folder_fake = 'project_name/baby_dataset/Test/Fake/'
     
     # Paths to the output data (folders to save cropped faces)
-    output_train_folder_fake = 'project_name/data/preprocessed/Train/Fake/'
-    output_validation_folder_fake = 'project_name/data/preprocessed/Validation/Fake/'
-    output_test_folder_fake = 'project_name/data/preprocessed/Test/Fake/'
-    output_train_folder_real = 'project_name/data/preprocessed/Train/Fake/Real/'
-    output_validation_folder_real = 'project_name/data/preprocessed/Validation/Real/'
-    output_test_folder_real = 'project_name/data/preprocessed/Test/Real/'
+    output_train_folder_fake = 'project_name/baby_dataset/preprocessed/Train/Fake/'
+    output_validation_folder_fake = 'project_name/baby_dataset/preprocessed/Validation/Fake/'
+    output_test_folder_fake = 'project_name/baby_dataset/preprocessed/Test/Fake/'
+    output_train_folder_real = 'project_name/baby_dataset/preprocessed/Train/Fake/Real/'
+    output_validation_folder_real = 'project_name/baby_dataset/preprocessed/Validation/Real/'
+    output_test_folder_real = 'project_name/baby_dataset/preprocessed/Test/Real/'
     
     # Process the images in each folder with their respective labels
     # Label 0 for 'real' images, 1 for 'fake' images
+    process_images(train_folder_fake, output_train_folder_fake, label=1)
     process_images(train_folder_real, output_train_folder_real, label=0)
     process_images(train_folder_fake, output_train_folder_fake, label=1)
     process_images(validation_folder_real, output_validation_folder_real, label=0)

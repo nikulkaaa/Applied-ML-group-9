@@ -45,7 +45,7 @@ def detect_face(image_path, margin=10, img_size=(128, 128)):
 
     return cropped_face_resized
 
-def process_images(input_folder, output_folder, label, img_size=(256, 256), margin=10):
+def process_images(input_folder, output_folder, label, img_size=(128, 128), margin=10):
     """
     Processes all images in the input folder, detects faces, crops and resizes them, and saves them to the output folder.
     Args:
@@ -97,7 +97,6 @@ def preprocess_data():
     
     # Process the images in each folder with their respective labels
     # Label 0 for 'real' images, 1 for 'fake' images
-    process_images(train_folder_fake, output_train_folder_fake, label=1)
     process_images(train_folder_real, output_train_folder_real, label=0)
     process_images(train_folder_fake, output_train_folder_fake, label=1)
     process_images(validation_folder_real, output_validation_folder_real, label=0)

@@ -52,27 +52,29 @@ def process_images(input_folder, output_folder, label, img_size=(128, 128), marg
         input_folder (str): Path to the folder containing input images.
         output_folder (str): Path to the folder where processed images will be saved.
         label (int): The label for the images (0 for real, 1 for fake).
-        img_size (tuple): Target image size for resizing (default 256x256).
-        margin (int): Margin to add around the detected face (default 10).
+        img_size (tuple): Target image size for resizing.
+        margin (int): Margin to add around the detected face.
     """
-    # Create the output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     
-    # Loop over each image in the input folder
     for filename in os.listdir(input_folder):
-        # Construct the full path to the image
-        img_path = os.path.join(input_folder, filename)
-        
         if filename.endswith(".jpg") or filename.endswith(".png"):
-            # Detect face and crop the image
+            output_img_path = os.path.join(output_folder, filename)
+
+            # Skip if already processed
+            if os.path.exists(output_img_path):
+                print(f"Skipping {filename}, already processed.")
+                continue
+
+            img_path = os.path.join(input_folder, filename)
             cropped_face = detect_face(img_path, margin, img_size)
             
             if cropped_face is not None:
-                # Save the cropped face image to the output folder
-                output_img_path = os.path.join(output_folder, filename)
-                cv2.imwrite(output_img_path, cv2.cvtColor(cropped_face, cv2.COLOR_RGB2BGR))  # Convert back to BGR for saving
+                cv2.imwrite(output_img_path, cv2.cvtColor(cropped_face, cv2.COLOR_RGB2BGR))
                 print(f"Processed {filename} with label {label}")
+            else:
+                print(f"Skipped {filename}: No face detected.")
 
 def preprocess_data():
     """

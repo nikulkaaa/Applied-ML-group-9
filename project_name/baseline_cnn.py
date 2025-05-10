@@ -28,7 +28,7 @@ BATCH_SIZE = 32
 
 # Load training dataset
 train_ds = tf.keras.preprocessing.image_dataset_from_directory(
-    'project_name/baby_dataset/Train',
+    'project_name/baby_dataset/preprocessed/Train',
     label_mode='categorical',
     image_size=IMG_SIZE,
     batch_size=BATCH_SIZE,
@@ -36,7 +36,7 @@ train_ds = tf.keras.preprocessing.image_dataset_from_directory(
 )
 # Load validation dataset
 val_ds = tf.keras.preprocessing.image_dataset_from_directory(
-    'project_name/baby_dataset/Val',
+    'project_name/baby_dataset/preprocessed/Validation',
     label_mode='categorical',
     image_size=IMG_SIZE,
     batch_size=BATCH_SIZE,
@@ -45,7 +45,7 @@ val_ds = tf.keras.preprocessing.image_dataset_from_directory(
 
 # Apply data augmentation and normalization
 data_augmentation = tf.keras.Sequential([
-    tf.keras.layers.Rescaling(1./255),
+    tf.keras.layers.Rescaling(1./128),
     tf.keras.layers.RandomFlip('horizontal'),
 ])
 
@@ -70,19 +70,27 @@ model.fit(
 ## EVALUATION
 y_true = []
 y_pred = []
+y_scores = []
 
 for images, labels in val_ds:
     preds = model.predict(images)
-    
-    # Convert from one-hot to class index
+
     true_labels = np.argmax(labels.numpy(), axis=1)
     predicted_labels = np.argmax(preds, axis=1)
 
+    # For binary classification: collect probability of class 1
+    # preds is shape (batch_size, 2), so we take column 1
+    positive_class_scores = preds[:, 1]
+
     y_true.extend(true_labels)
     y_pred.extend(predicted_labels)
+    y_scores.extend(positive_class_scores)
 
-# Step 2: Evaluate
-metrics = ModelMetrics(y_true=y_true, y_pred=y_pred)
+metrics = ModelMetrics(
+    y_true=y_true,
+    y_pred=y_pred,
+    y_scores=y_scores 
+)
 metrics.print_metrics()
 
 # Optional: Get dictionary of results

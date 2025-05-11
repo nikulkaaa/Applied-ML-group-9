@@ -5,7 +5,7 @@ import numpy as np
 from retinaface import RetinaFace
 from tensorflow.keras.preprocessing import image
 
-# initialize the Dlib face detector and landmark predictor
+# initialize the Dlib face detector and landmark predictor 
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
 
@@ -81,7 +81,7 @@ def align_face(face_img):
     left_eye = (shape.part(36).x, shape.part(36).y)
     right_eye = (shape.part(45).x, shape.part(45).y)
     
-    # Calculate the center of the eyes
+    # calculate the center of the eyes
     eye_center = ((left_eye[0] + right_eye[0]) // 2, (left_eye[1] + right_eye[1]) // 2)
 
     # Calculate the angle of rotation to align the eyes horizontally

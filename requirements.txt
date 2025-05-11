@@ -1,10 +1,8 @@
-numpy
-opencv-python
 retinaface
-tensorflow==2.5.0
-tf_keras
-threestudio
-pytorch_lightning
-omegaconf
-jaxtyping
-tinicudann
+# keras==3.9.2
+numpy
+tensorflow
+retinaface
+opencv-python
+sklearn
+# dlib

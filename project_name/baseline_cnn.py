@@ -28,7 +28,7 @@ BATCH_SIZE = 32
 
 # Load training dataset
 train_ds = tf.keras.preprocessing.image_dataset_from_directory(
-    'project_name/baby_dataset/preprocessed/Train',
+    'project_name/baby_dataset/preprocessed_eye_align/Train',
     label_mode='categorical',
     image_size=IMG_SIZE,
     batch_size=BATCH_SIZE,
@@ -36,7 +36,7 @@ train_ds = tf.keras.preprocessing.image_dataset_from_directory(
 )
 # Load validation dataset
 val_ds = tf.keras.preprocessing.image_dataset_from_directory(
-    'project_name/baby_dataset/preprocessed/Validation',
+    'project_name/baby_dataset/preprocessed_eye_align/Validation',
     label_mode='categorical',
     image_size=IMG_SIZE,
     batch_size=BATCH_SIZE,

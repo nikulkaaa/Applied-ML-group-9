@@ -24,10 +24,17 @@ def move_images(src_folder: str, dest_folder: str, num_images: int) -> None:
     print(f"Moved {num_images} images from {src_folder} to {dest_folder}.")
 
 def main():
-    real_src = os.path.join('project_name','data', 'Dataset', 'Train', 'Real')
-    fake_src = os.path.join('project_name', 'data', 'Dataset', 'Train', 'Fake')
-    real_dest = os.path.join('data', 'mini_dataset', 'real')
-    fake_dest = os.path.join('data', 'mini_dataset', 'fake')
+    # TRAINING DATA:
+    # real_src = os.path.join('project_name','data', 'Dataset', 'Train', 'Real')
+    # fake_src = os.path.join('project_name', 'data', 'Dataset', 'Train', 'Fake')
+    # real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Train', 'real')
+    # fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Train', 'fake')
+
+    # VALIDATION DATA:
+    real_src = os.path.join('project_name','data', 'Dataset', 'Validation', 'Real')
+    fake_src = os.path.join('project_name','data', 'Dataset', 'Validation', 'Fake')
+    real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Validation', 'real')
+    fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Validation', 'fake')
 
     # Check if the source directories exist
     if not os.path.exists(real_src):
@@ -38,8 +45,8 @@ def main():
         return
 
     # Move 3000 images
-    move_images(real_src, real_dest, 3000)
-    move_images(fake_src, fake_dest, 3000)
+    move_images(real_src, real_dest, 250)
+    move_images(fake_src, fake_dest, 250)
 
 if __name__ == "__main__":
     main()

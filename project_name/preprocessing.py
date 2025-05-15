@@ -133,26 +133,26 @@ def preprocess_data():
     Preprocesses the data for training, validation, and testing by detecting faces and saving them to respective folders.
     """
     # Paths to the input data (folders with images)
-    train_folder_real = 'project_name/data/mini_dataset/Real/'
-    train_folder_fake = 'project_name/data/mini_dataset/Fake/'
-    # validation_folder_real = 'project_name/baby_dataset/Validation/Real/'
-    # validation_folder_fake = 'project_name/baby_dataset/Validation/Fake/'
-    # test_folder_real = 'project_name/baby_dataset/Test/Real/'
-    # test_folder_fake = 'project_name/baby_dataset/Test/Fake/'
+    # train_folder_real = 'project_name/data/mini_dataset/Train/Real/'
+    # train_folder_fake = 'project_name/data/mini_dataset/Train/Fake/'
+    validation_folder_real = 'project_name/data/mini_dataset/Validation/Real/'
+    validation_folder_fake = 'project_name/data/mini_dataset/Validation/Fake/'
+    # test_folder_real = 'project_name/data/mini_dataset/Test/Real/'
+    # test_folder_fake = 'project_name/data/mini_dataset/Test/Fake/'
     
     # Paths to the output data (folders to save cropped faces)
-    output_train_folder_fake = 'project_name/baby_dataset/preprocessed_eye_align/Train/Fake/'
-    # output_validation_folder_fake = 'project_name/baby_dataset/preprocessed/Validation/Fake/'
-    # output_test_folder_fake = 'project_name/baby_dataset/preprocessed/Test/Fake/'
-    output_train_folder_real = 'project_name/baby_dataset/preprocessed_eye_align/Train/Real/'
-    # output_validation_folder_real = 'project_name/baby_dataset/preprocessed/Validation/Real/'
-    # output_test_folder_real = 'project_name/baby_dataset/preprocessed/Test/Real/'
+    # output_train_folder_fake = 'project_name/baby_dataset/preprocessed_eye_align/Train/Fake/'
+    output_validation_folder_fake = 'project_name/baby_dataset/preprocessed_eye_align/Validation/Fake/'
+    # output_test_folder_fake = 'project_name/baby_dataset/preprocessed_eye_align/Test/Fake/'
+    # output_train_folder_real = 'project_name/baby_dataset/preprocessed_eye_align/Train/Real/'
+    output_validation_folder_real = 'project_name/baby_dataset/preprocessed_eye_align/Validation/Real/'
+    # output_test_folder_real = 'project_name/baby_dataset/preprocessed_eye_align/Test/Real/'
     
     # Process the images in each folder with their respective labels
-    process_images(train_folder_real, output_train_folder_real, label=0)
-    process_images(train_folder_fake, output_train_folder_fake, label=1)
-    # process_images(validation_folder_real, output_validation_folder_real, label=0)
-    # process_images(validation_folder_fake, output_validation_folder_fake, label=1)
+    # process_images(train_folder_real, output_train_folder_real, label=0)
+    # process_images(train_folder_fake, output_train_folder_fake, label=1)
+    process_images(validation_folder_real, output_validation_folder_real, label=0)
+    process_images(validation_folder_fake, output_validation_folder_fake, label=1)
     # process_images(test_folder_real, output_test_folder_real, label=0)
     # process_images(test_folder_fake, output_test_folder_fake, label=1)
 

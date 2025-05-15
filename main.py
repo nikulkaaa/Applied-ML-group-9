@@ -24,6 +24,8 @@ def move_images(src_folder: str, dest_folder: str, num_images: int) -> None:
     print(f"Moved {num_images} images from {src_folder} to {dest_folder}.")
 
 def main():
+    # Use one of the following blocks depending on which type of data you want to create a subset of
+
     # TRAINING DATA:
     # real_src = os.path.join('project_name','data', 'Dataset', 'Train', 'Real')
     # fake_src = os.path.join('project_name', 'data', 'Dataset', 'Train', 'Fake')
@@ -36,6 +38,12 @@ def main():
     real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Validation', 'real')
     fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Validation', 'fake')
 
+    # TEST DATA:
+    # real_src = os.path.join('project_name','data', 'Dataset', 'Test', 'Real')
+    # fake_src = os.path.join('project_name','data', 'Dataset', 'Test', 'Fake')
+    # real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Test', 'real')
+    # fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Test', 'fake')
+
     # Check if the source directories exist
     if not os.path.exists(real_src):
         print(f"Source directory {real_src} does not exist.")
@@ -43,10 +51,12 @@ def main():
     if not os.path.exists(fake_src):
         print(f"Source directory {fake_src} does not exist.")
         return
+    
+    # The number of real/fake images you want in your data subset
+    NUMBER_OF_IMAGES = 250
 
-    # Move 3000 images
-    move_images(real_src, real_dest, 250)
-    move_images(fake_src, fake_dest, 250)
+    move_images(real_src, real_dest, NUMBER_OF_IMAGES)
+    move_images(fake_src, fake_dest, NUMBER_OF_IMAGES)
 
 if __name__ == "__main__":
     main()

@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
-import argparse
-import logging
-from pathlib import Path
-from typing import Tuple, Optional
+# import threestudio
+import os
+import subprocess
+import cv2
+from preprocessing import process_images
 
 import cv2                        # pip install opencv-python
 import numpy as np                # pip install numpy

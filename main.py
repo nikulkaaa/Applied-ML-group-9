@@ -53,7 +53,7 @@ def main():
         return
     
     # The number of real/fake images you want in your data subset
-    NUMBER_OF_IMAGES = 250
+    NUMBER_OF_IMAGES = 750
 
     move_images(real_src, real_dest, NUMBER_OF_IMAGES)
     move_images(fake_src, fake_dest, NUMBER_OF_IMAGES)

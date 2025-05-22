@@ -5,5 +5,5 @@ __pycache__/
 venv/
 .env
 # project_name/baby_dataset/
-project_name/data/
+project_name/data/full_dataset
 threestudio/

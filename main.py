@@ -27,22 +27,22 @@ def main():
     # Use one of the following blocks depending on which type of data you want to create a subset of
 
     # TRAINING DATA:
-    # real_src = os.path.join('project_name','data', 'Dataset', 'Train', 'Real')
-    # fake_src = os.path.join('project_name', 'data', 'Dataset', 'Train', 'Fake')
-    # real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Train', 'real')
-    # fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Train', 'fake')
+    # real_src = os.path.join('project_name','data', 'full_dataset', 'Train', 'Real')
+    # fake_src = os.path.join('project_name', 'data', 'full_dataset', 'Train', 'Fake')
+    # real_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Train', 'real')
+    # fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Train', 'fake')
 
     # VALIDATION DATA:
-    real_src = os.path.join('project_name','data', 'Dataset', 'Validation', 'Real')
-    fake_src = os.path.join('project_name','data', 'Dataset', 'Validation', 'Fake')
-    real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Validation', 'real')
-    fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Validation', 'fake')
+    # real_src = os.path.join('project_name','data', 'full_dataset', 'Validation', 'Real')
+    # fake_src = os.path.join('project_name','data', 'full_dataset', 'Validation', 'Fake')
+    # real_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Validation', 'real')
+    # fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Validation', 'fake')
 
     # TEST DATA:
-    # real_src = os.path.join('project_name','data', 'Dataset', 'Test', 'Real')
-    # fake_src = os.path.join('project_name','data', 'Dataset', 'Test', 'Fake')
-    # real_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Test', 'real')
-    # fake_dest = os.path.join('project_name', 'data', 'mini_dataset', 'Test', 'fake')
+    real_src = os.path.join('project_name','data', 'full_dataset', 'Test', 'Real')
+    fake_src = os.path.join('project_name','data', 'full_dataset', 'Test', 'Fake')
+    real_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Test', 'real')
+    fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Test', 'fake')
 
     # Check if the source directories exist
     if not os.path.exists(real_src):
@@ -53,7 +53,7 @@ def main():
         return
     
     # The number of real/fake images you want in your data subset
-    NUMBER_OF_IMAGES = 750
+    NUMBER_OF_IMAGES = 1000
 
     move_images(real_src, real_dest, NUMBER_OF_IMAGES)
     move_images(fake_src, fake_dest, NUMBER_OF_IMAGES)

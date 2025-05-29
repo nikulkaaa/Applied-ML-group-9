@@ -38,7 +38,7 @@ if uploaded_file:
                     r = requests.post(
                         "http://localhost:8000/upload-image/",
                         files=files,
-                        timeout=90,
+                        timeout=600,
                     )
                     if r.ok:
                         data = r.json()

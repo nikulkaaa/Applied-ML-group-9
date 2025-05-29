@@ -2,22 +2,55 @@
 set -euo pipefail
 
 # 1) Install Miniconda locally if not avaliable since it is a prereq.
+# Miniconda must be installed at C:\Users\[insert_your_user_here]\miniconda3
 MINICONDA_DIR="${HOME}/miniconda3"
-INSTALLER="Miniconda3-latest-Linux-x86_64.sh"
-URL="https://repo.anaconda.com/miniconda/${INSTALLER}"
+# Default to Linux; we’ll override on Windows/MSYS
+INSTALLER_NAME="Miniconda3-latest-Linux-x86_64.sh"
+INSTALLER_FLAGS=(-b)
+INSTALLER_URL_BASE="https://repo.anaconda.com/miniconda"
+
+case "$(uname -s)" in
+  Linux)
+    INSTALLER_NAME="Miniconda3-latest-Linux-x86_64.sh"
+    ;;
+  Darwin)
+    INSTALLER_NAME="Miniconda3-latest-MacOSX-x86_64.sh"
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    # Windows (MSYS / Git-bash / Cygwin)
+    INSTALLER_NAME="Miniconda3-latest-Windows-x86_64.exe"
+    INSTALLER_FLAGS=(/S /D="${MINICONDA_DIR}")
+    ;;
+  *)
+    echo "Unsupported OS: $(uname -s)" >&2
+    exit 1
+    ;;
+esac
+
+INSTALLER_URL="${INSTALLER_URL_BASE}/${INSTALLER_NAME}"
 
 if [ ! -d "$MINICONDA_DIR" ]; then
   echo "Installing Miniconda into $MINICONDA_DIR…"
+  tmpfile=$(mktemp)
   if command -v wget >/dev/null; then
-    wget -q "$URL" -O /tmp/mcl.sh
+    wget -q "$INSTALLER_URL" -O "$tmpfile"
   elif command -v curl >/dev/null; then
-    curl -sL "$URL" -o /tmp/mcl.sh
+    curl -sL "$INSTALLER_URL" -o "$tmpfile"
   else
     echo "Error: neither wget nor curl is installed." >&2
     exit 1
   fi
-  bash /tmp/mcl.sh -b -p "$MINICONDA_DIR"
-  rm /tmp/mcl.sh
+
+  if [[ "$INSTALLER_NAME" =~ \.sh$ ]]; then
+    bash "$tmpfile" "${INSTALLER_FLAGS[@]}" -p "$MINICONDA_DIR"
+  else
+    # .exe installer on Windows
+    chmod +x "$tmpfile"
+    # run the Windows installer silently
+    "$tmpfile" "${INSTALLER_FLAGS[@]}"
+  fi
+
+  rm -f "$tmpfile"
 else
   echo "Miniconda already installed; skipping."
 fi

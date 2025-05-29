@@ -13,7 +13,6 @@ Before you begin, ensure you have the following:
 ### Installation
 1. Clone the repository
     git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
-    cd your-repo
 
 2. Make the installer script executable
     chmod +x run_pipeline.sh

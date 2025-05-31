@@ -4,6 +4,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from metrics import ModelMetrics
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
 
 
 ### This is a very basic baseline model, still needs to be tuned
@@ -67,7 +68,9 @@ data_augmentation = tf.keras.Sequential([
 
 # Apply only to training dataset
 train_ds = train_ds.map(lambda x, y: (data_augmentation(x, training=True), y))
-val_ds = val_ds.map(lambda x, y: (x / 255.0, y))  # just normalize
+
+# Normalize validation dataset
+val_ds = val_ds.map(lambda x, y: (x / 255.0, y))
 
 model = build_baseline_model(input_shape=(128, 128, 3))
 
@@ -124,7 +127,7 @@ metrics = ModelMetrics(
 )
 metrics.print_metrics()
 
-# Optional: Get dictionary of results
+# Get metrics
 results = metrics.get_all_metrics()
 
 
@@ -156,7 +159,6 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
     # Normalize the heatmap
     heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
     return heatmap.numpy()
-import cv2
 
 def display_gradcam(image, heatmap, alpha=0.4):
     # Resize heatmap to match image size
@@ -177,7 +179,6 @@ def display_gradcam(image, heatmap, alpha=0.4):
     plt.show()
 
 # Get a batch of images and labels
-# for images, labels in val_ds.take(1):
 num_images = 5
 count = 0
 
@@ -196,18 +197,4 @@ for images, labels in val_ds:
             break
     if count >= num_images:
         break
-    # image = images[0].numpy()
-    # input_image = np.expand_dims(image, axis=0)
-
-    # # Make sure image is normalized like training
-    # input_image = input_image / 255.0
-
-    # last_conv_layer_name = 'conv_128'
-
-
-    # # Compute Grad-CAM heatmap
-    # heatmap = make_gradcam_heatmap(input_image, model, last_conv_layer_name)
-
-    # # Display result
-    # display_gradcam((image * 255).astype(np.uint8), heatmap)
     break

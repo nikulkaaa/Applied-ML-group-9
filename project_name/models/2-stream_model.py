@@ -32,6 +32,7 @@ from sklearn.metrics import (
     accuracy_score)
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from grad_cam_saliency import compute_gradcam, show_gradcam_on_image
 
 # supressing warnings since they are annoying 
 warnings.filterwarnings("ignore")
@@ -440,7 +441,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--preproc-root", required=True)
     p.add_argument("--recon-root",   required=True)
-    p.add_argument("--epochs",   type=int, default=20)
+    p.add_argument("--epochs",   type=int, default=2)
     p.add_argument("--batch",    type=int, default=32)
     p.add_argument("--lr",       type=float, default=1e-3)
     p.add_argument("--cache-dir")
@@ -458,6 +459,7 @@ def build_loaders(args):
     cache = Path(args.cache_dir) if args.cache_dir else None
     tr_ds = DeepFake3DDataset(Path(args.preproc_root), Path(args.recon_root), "train", aug, cache)
     vl_ds = DeepFake3DDataset(Path(args.preproc_root), Path(args.recon_root), "val", None, cache)
+    print(f"Training dataset size: {len(tr_ds)}")
     return (
         DataLoader(tr_ds, batch_size=args.batch, shuffle=True,  num_workers=4, pin_memory=True),
         DataLoader(vl_ds, batch_size=args.batch, shuffle=False, num_workers=4, pin_memory=True))
@@ -534,7 +536,31 @@ def main():
     for i, j in itertools.product(range(2),range(2)):
         plt.text(j, i, cm_t[i, j], ha="center", va="center")
     plt.savefig(trainer.dir/"test_confusion_matrix.png")
-    #plt.show()
+    plt.show()
+
+
+    # ------------------------------------------------------------------
+    # Grad-CAM ▸ visualise first 5 validation images
+    # ------------------------------------------------------------------
+    model.eval()                         # make sure we’re in eval mode
+    shown = 0
+    with torch.no_grad():               # no gradient tracking except inside Grad-CAM
+        for rgb, _, err, _ in vl_loader:   # rgb & err come from your dataset
+            rgb  = rgb.to(device)
+            err  = err.to(device)
+
+            # Compute heat-map on ERROR stream  (use stream='rgb' to view rgb_stream instead)
+            cam  = compute_gradcam(model,
+                                   (rgb[:1], err[:1]),   # batch-size 1
+                                   stream='err')         # 'rgb' | 'err'
+            # Overlay and show
+            show_gradcam_on_image(rgb[0].cpu(), cam)
+
+            shown += 1
+            if shown >= 5:
+                break
+
+
 
 if __name__ == "__main__":
     main()

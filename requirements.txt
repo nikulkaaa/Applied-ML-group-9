@@ -10,3 +10,4 @@ fvcore
 chumpy>=0.69
 kornia
 tqdm
+gdown

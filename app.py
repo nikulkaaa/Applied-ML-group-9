@@ -123,7 +123,7 @@ async def upload_image(file: UploadFile = File(...)) -> UploadImageResponse:
         # 2) Preprocessing step
         pre = subprocess.run(
             [CONDA_BIN, "run", "-n", "preproc_env", "--no-capture-output",
-             "python", "preproc_inference.py", str(dest)],
+             "python", "app/preproc_inference.py", str(dest)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
@@ -137,7 +137,7 @@ async def upload_image(file: UploadFile = File(...)) -> UploadImageResponse:
         preproc_dir = dest.parent / f"{dest.stem}_preprocessed"
         pred = subprocess.run(
             [CONDA_BIN, "run", "-n", "predict_env", "--no-capture-output",
-             "python", "predict.py", str(preproc_dir)],
+             "python", "app/predict.py", str(preproc_dir)],
             check=True, stdout=subprocess.PIPE, text=True
         )
         result = json.loads(pred.stdout.strip())

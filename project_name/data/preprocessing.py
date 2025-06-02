@@ -156,7 +156,8 @@ def preprocess_data():
     # validation_folder_fake = 'data/raw_dataset/Validation/Fake/'
     # test_folder_real = 'data/raw_dataset/Test/Real/'
     # test_folder_fake = 'data/raw_dataset/Test/Fake/'
-    test_origin = 'data/test_background/raw'
+    real_origin = 'data/merged_raw/real'
+    fake_origin = 'data/merged_raw/fake'
     
     # Paths to the output data (folders to save cropped faces)
     # output_train_folder_fake = 'data/preprocessed_dataset/preprocessed_eye_align/Train/Fake/'
@@ -165,7 +166,8 @@ def preprocess_data():
     # output_train_folder_real = 'data/preprocessed_dataset/preprocessed_eye_align/Train/Real/'
     # output_validation_folder_real = 'data/preprocessed_dataset/preprocessed_eye_align/Validation/Real/'
     # output_test_folder_real = 'data/preprocessed_dataset/preprocessed_eye_align/Test/Real/'
-    test_goal = 'data/test_background/preprocessed'
+    real_goal = 'data/preprocessed_full_dataset/real'
+    fake_goal = 'data/preprocessed_full_dataset/fake'
     
     # Process the images in each folder with their respective labels
     # process_images(train_folder_real, output_train_folder_real, label=0)
@@ -174,7 +176,8 @@ def preprocess_data():
     # process_images(validation_folder_fake, output_validation_folder_fake, label=1)
     # process_images(test_folder_real, output_test_folder_real, label=0)
     # process_images(test_folder_fake, output_test_folder_fake, label=1)
-    process_images(test_origin, test_goal, label=1)
+    process_images(real_origin, real_goal, label=1)
+    process_images(fake_origin, fake_goal, label=0)
 
 if __name__ == '__main__':
     preprocess_data()

@@ -27,10 +27,10 @@ def main():
     # Use one of the following blocks depending on which type of data you want to create a subset of
 
     # TRAINING DATA:
-    # real_src = os.path.join('project_name','data', 'full_dataset', 'Train', 'Real')
-    # fake_src = os.path.join('project_name', 'data', 'full_dataset', 'Train', 'Fake')
-    # real_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Train', 'real')
-    # fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Train', 'fake')
+    real_src = os.path.join('data', 'full_dataset', 'Train', 'Real')
+    fake_src = os.path.join('data', 'full_dataset', 'Train', 'Fake')
+    real_dest = os.path.join('data', 'merged_raw', 'real')
+    fake_dest = os.path.join('data', 'merged_raw', 'fake')
 
     # VALIDATION DATA:
     # real_src = os.path.join('project_name','data', 'full_dataset', 'Validation', 'Real')
@@ -39,10 +39,10 @@ def main():
     # fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Validation', 'fake')
 
     # TEST DATA:
-    real_src = os.path.join('project_name','data', 'full_dataset', 'Test', 'Real')
-    fake_src = os.path.join('project_name','data', 'full_dataset', 'Test', 'Fake')
-    real_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Test', 'real')
-    fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Test', 'fake')
+    # real_src = os.path.join('project_name','data', 'full_dataset', 'Test', 'Real')
+    # fake_src = os.path.join('project_name','data', 'full_dataset', 'Test', 'Fake')
+    # real_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Test', 'real')
+    # fake_dest = os.path.join('project_name', 'data', 'raw_dataset', 'Test', 'fake')
 
     # Check if the source directories exist
     if not os.path.exists(real_src):
@@ -53,10 +53,11 @@ def main():
         return
     
     # The number of real/fake images you want in your data subset
-    NUMBER_OF_IMAGES = 1000
+    NUMBER_OF_IMAGES_REAL = 6044
+    NUMBER_OF_IMAGES_FAKE = 8745
 
-    move_images(real_src, real_dest, NUMBER_OF_IMAGES)
-    move_images(fake_src, fake_dest, NUMBER_OF_IMAGES)
+    move_images(real_src, real_dest, NUMBER_OF_IMAGES_REAL)
+    move_images(fake_src, fake_dest, NUMBER_OF_IMAGES_FAKE)
 
 if __name__ == "__main__":
     main()

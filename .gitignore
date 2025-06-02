@@ -4,8 +4,9 @@ __pycache__/
 .DS_Store
 venv/
 .env
-
 data/full_dataset
 data/raw_dataset
+data/preprocessed_dataset
+data/3DRecon
 data/test_background
 threestudio/

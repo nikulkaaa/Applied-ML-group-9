@@ -4,7 +4,7 @@ import cv2
 import matplotlib.pyplot as plt
 import seaborn as sns
 from insightface.app import FaceAnalysis
-from preprocessing import detect_face
+from project_name.data.preprocessing import detect_face
 
 ### We will tune this when we have all data from the sub-dataset preprocessed
 

@@ -5,6 +5,7 @@ from metrics import ModelMetrics
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import os
 
 
 ### This is a very basic baseline model, still needs to be tuned
@@ -85,6 +86,14 @@ history = model.fit(
     validation_data=val_ds,
     epochs=30
 )
+
+# save model
+SAVE_DIR = "saved_models"
+FULL_MODEL_DIR = os.path.join(SAVE_DIR, "baseline_full_model")
+os.makedirs(SAVE_DIR, exist_ok=True)
+model.save(FULL_MODEL_DIR)
+print(f"Model saved to {FULL_MODEL_DIR}")
+
 def plot_loss(history):
     # Plot training & validation loss values
     plt.figure(figsize=(8, 5))
@@ -129,8 +138,6 @@ metrics.print_metrics()
 
 # Get metrics
 results = metrics.get_all_metrics()
-
-
 
 def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
     # Create a model that maps the input image to the activations of the last conv layer

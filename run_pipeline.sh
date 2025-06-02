@@ -118,7 +118,7 @@ sleep 2
 # 5) Launch Streamlit in foreground (via predict_env)
 echo "Starting Streamlit on http://localhost:8501"
 "$CONDA_BIN" run -n predict_env --no-capture-output \
-  streamlit run streamlit_app.py
+  streamlit run app/streamlit_app.py
 
 # 6) Teardown: kill FastAPI when Streamlit exits
 echo "Stopping FastAPI (pid=$UVICORN_PID)"

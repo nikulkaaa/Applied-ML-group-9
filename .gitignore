@@ -4,6 +4,8 @@ __pycache__/
 .DS_Store
 venv/
 .env
-# project_name/baby_dataset/
-project_name/data/full_dataset
+
+data/full_dataset
+data/raw_dataset
+data/test_background
 threestudio/

@@ -144,7 +144,6 @@ def process_images(input_folder, output_folder, label, img_size=(128, 128), marg
         bgr = cv2.cvtColor(masked_face, cv2.COLOR_RGB2BGR)
         cv2.imwrite(out_path, bgr)
         print(f"Processed {filename} with label {label}")
-
 def preprocess_data():
     """
     Preprocesses the data for training, validation, and testing by detecting faces and saving them to respective folders.

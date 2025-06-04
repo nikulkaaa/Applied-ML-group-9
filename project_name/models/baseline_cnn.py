@@ -11,8 +11,8 @@ import cv2
 # Set image size and batch size
 IMG_SIZE = (128, 128)
 BATCH_SIZE = 32
-EPOCHS = 30
-K_FOLDS = 5
+EPOCHS = 1
+K_FOLDS = 2
 DATA_ROOT = "data/preprocessed_dataset/preprocessed_no_background"
 
 def build_baseline_model(input_shape=(128, 128, 3)):
@@ -122,7 +122,7 @@ def run_kfold():
     skf = StratifiedKFold(n_splits=K_FOLDS, shuffle=True, random_state=42)
     fold_metrics = []
 
-    save_dir = "saved_models"
+    save_dir = "saved_models_test"
     os.makedirs(save_dir, exist_ok=True)
 
     for fold_idx, (train_idx, val_idx) in enumerate(skf.split(filepaths, labels), start=1):
@@ -165,6 +165,28 @@ def run_kfold():
         fold_result = metrics.get_all_metrics()
         fold_metrics.append(fold_result)
         print(f"Fold {fold_idx} metrics: {fold_result}")
+
+        shown = 0
+        for images_batch, labels_batch in val_ds:
+            # images_batch: shape (batch_size, 128,128,3), values in [0,1]
+            for i in range(images_batch.shape[0]):
+                # 1) Prepare a single image for Grad-CAM
+                img_tensor = tf.expand_dims(images_batch[i], axis=0)  # shape (1,128,128,3)
+                
+                # 2) Compute Grad-CAM heatmap
+                heatmap = make_gradcam_heatmap(img_tensor, model, model.last_conv_layer_name)
+                
+                # 3) Convert image back to uint8 for display
+                orig_img = (images_batch[i].numpy() * 255).astype(np.uint8)
+                
+                # 4) Overlay and show
+                display_gradcam(orig_img, heatmap)
+                
+                shown += 1
+                if shown >= 5:
+                    break
+            if shown >= 5:
+                break
 
         # Save this fold’s model
         model.save(os.path.join(save_dir, f"baseline_fold_{fold_idx}.keras"))

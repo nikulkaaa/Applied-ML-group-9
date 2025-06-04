@@ -6,7 +6,8 @@ This module implements a FastAPI application that exposes an endpoint to:
   1. Upload a JPEG image
   2. Run a preprocessing pipeline (dlib face detection + transforms)
   3. Run a prediction model to decide whether the image is real or deepfake
-  4. Return a structured JSON response with the label and confidence
+     and produce a Grad-CAM saliency image
+  4. Return a structured JSON response with the label, confidence, and saliency path
 
 Environment and dependencies are managed via Conda environments:
   - `preproc_env` for preprocessing (Python 3.8)
@@ -22,12 +23,14 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
 
 # Standard logger for Uvicorn
 logger = logging.getLogger("uvicorn.error")
 
 # Path to Conda binary (set via env or default “conda”)
 CONDA_BIN = os.getenv("CONDA_BIN", "conda")
+
 # Directory where uploads are stored
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -39,23 +42,28 @@ class UploadImageResponse(BaseModel):
 
     Attributes:
         status (str): "success" or "error".
-        output (str | None): Optional textual output from preprocessing/prediction.
         error (str | None): Error message if status == "error".
         image_is_real (bool | None): True if the model predicts “real”, False for “deepfake”.
         confidence (float | None): Probability score for the predicted label.
+        saliency (str | None): Filepath to the saved Grad-CAM overlay image.
     """
     status: str
-    output: str | None = None
     error: str | None = None
     image_is_real: bool | None = None
     confidence: float | None = None
+    saliency: str | None = None
 
 
 # Initialize FastAPI app with metadata
 app = FastAPI(
     title="Deepfake Recognition API",
-    description="Upload a JPEG and run preprocessing + prediction",
-    version="1.0.0"
+    description="Upload a JPEG and run preprocessing + prediction (+ Grad-CAM)",
+    version="1.0.0",
+)
+app.mount(
+    "/uploads",
+    StaticFiles(directory="uploads", html=False),
+    name="uploads",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -75,13 +83,6 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         "status": "error",
         "error": exc.detail
       }
-
-    Args:
-        request (Request): The incoming HTTP request.
-        exc (HTTPException): The exception raised.
-
-    Returns:
-        JSONResponse: A JSON body with error details and the appropriate status code.
     """
     return JSONResponse(
         status_code=exc.status_code,
@@ -92,27 +93,15 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 @app.post("/upload-image/", response_model=UploadImageResponse)
 async def upload_image(file: UploadFile = File(...)) -> UploadImageResponse:
     """
-    Uploads an image, runs preprocessing and prediction, and returns structured JSON.
-
-    Workflow:
-      1. Save the uploaded file to ./uploads
-      2. Call the `preproc_env` Conda environment to run preproc_inference.py
-      3. If no face is found, return 400 with a helpful message
-      4. Call the `predict_env` Conda environment to run predict.py
-      5. Parse its JSON stdout and return label + confidence
-
-    Args:
-        file (UploadFile): A JPEG image uploaded by the client.
-
-    Raises:
-        HTTPException(400): If no face is detected.
-        HTTPException(500): If preprocessing or prediction fails unexpectedly.
-
-    Returns:
-        UploadImageResponse: Pydantic model with fields:
-          - status: "success"
-          - image_is_real: True/False
-          - confidence: float
+    1) Save the uploaded file to ./uploads
+    2) Call `preproc_env` to run preproc_inference.py
+    3) If no face is found, return 400
+    4) Call `predict_env` to run predict.py (without check=True)
+    5) Inspect pred.returncode:
+         - If returncode != 0, try to load JSON from stdout:
+             • If stdout JSON contains {"error":...}, return HTTP 400
+             • Otherwise return HTTP 500 with stderr
+         - If returncode == 0, parse JSON from stdout and return success
     """
     try:
         # 1) Save upload
@@ -129,24 +118,56 @@ async def upload_image(file: UploadFile = File(...)) -> UploadImageResponse:
             text=True
         )
         if pre.returncode == 2:
+            # our preproc_inference.py uses exit code 2 to signal “no face detected”
             raise HTTPException(400, "No face detected in the image.")
         elif pre.returncode != 0:
             raise HTTPException(500, f"Pre-processing error:\n{pre.stderr.strip()}")
 
-        # 3) Prediction step
+        # 3) Prediction step (note: no check=True)
         preproc_dir = dest.parent / f"{dest.stem}_preprocessed"
         pred = subprocess.run(
             [CONDA_BIN, "run", "-n", "predict_env", "--no-capture-output",
              "python", "app/predict.py", str(preproc_dir)],
-            check=True, stdout=subprocess.PIPE, text=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
-        result = json.loads(pred.stdout.strip())
 
-        # 4) Build and return response
+        # 4) If predict.py returned non-zero, examine its output
+        if pred.returncode != 0:
+            # First, try to parse JSON from stdout
+            try:
+                j = json.loads(pred.stdout.strip())
+            except json.JSONDecodeError:
+                # No valid JSON in stdout → we treat stderr as a 500
+                raise HTTPException(500, f"Prediction failed:\n{pred.stderr.strip()}")
+            else:
+                # If the JSON has an "error" field, return 400 with that
+                if "error" in j:
+                    raise HTTPException(400, j["error"])
+                # Otherwise, something unexpected happened—treat as 500:
+                raise HTTPException(500, f"Unexpected prediction output: {pred.stdout.strip()}")
+
+        # 5) At this point returncode == 0, so parse JSON from stdout
+        try:
+            result = json.loads(pred.stdout.strip())
+        except json.JSONDecodeError:
+            raise HTTPException(500, f"Prediction succeeded but returned invalid JSON.")
+
+        # 6) If predict.py returned {"error": "..."} even with returncode==0
+        if "error" in result:
+            raise HTTPException(400, result["error"])
+
+        # 7) Otherwise extract label, confidence, saliency
+        label = result.get("label")
+        confidence = result.get("confidence")
+        saliency = result.get("saliency")
+
         return UploadImageResponse(
             status="success",
-            image_is_real=(result.get("label") == "real"),
-            confidence=float(result.get("confidence", 0.0)),
+            image_is_real=(label == "real"),
+            confidence=confidence,
+            saliency=saliency
         )
 
     except HTTPException:
@@ -158,24 +179,16 @@ async def upload_image(file: UploadFile = File(...)) -> UploadImageResponse:
         raise HTTPException(500, f"Unexpected error: {e}")
 
 
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Catch-all exception handler for unanticipated errors.
 
     Prints traceback to the console and returns a 500 JSONResponse.
-
-    Args:
-        request (Request): The incoming HTTP request.
-        exc (Exception): The uncaught exception instance.
-
-    Returns:
-        JSONResponse: { "status": "error", "error": str(exc) }
     """
-    # Print full traceback in server logs
     import traceback
     traceback.print_exc()
-
     return JSONResponse(
         status_code=500,
         content={"status": "error", "error": str(exc)},

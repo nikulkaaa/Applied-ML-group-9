@@ -1,10 +1,12 @@
 import streamlit as st
 import requests
 from PIL import Image
+from pathlib import Path
 
 st.set_page_config(layout="wide")
 st.title("🔍 Deepfake Detection")
 
+# layout
 img_col, ctrl_col = st.columns([6, 4])
 
 with ctrl_col:
@@ -14,12 +16,12 @@ with ctrl_col:
     )
 
 if uploaded_file:
-    # show the image on the left
+    # Show the uploaded image on the left for a quick visual check
     with img_col:
         st.image(
             Image.open(uploaded_file),
             caption=uploaded_file.name,
-            use_container_width=True
+            use_container_width=True,
         )
 
     with ctrl_col:
@@ -40,16 +42,51 @@ if uploaded_file:
                         files=files,
                         timeout=600,
                     )
+
+                    # Handle prediction response
                     if r.ok:
                         data = r.json()
-                        label = "Real" if data["image_is_real"] else "Deepfake"
-                        conf  = data["confidence"] * 100
+                        label = "Real" if data.get("image_is_real") else "Deepfake"
+                        conf = data.get("confidence", 0) * 100
                         st.success(f"**{label}** ({conf:.1f}% confidence)")
+
+                        # Locate and display saliency map
+                        try:
+                            stem = Path(uploaded_file.name).stem
+                            suffix = Path(uploaded_file.name).suffix
+
+                            # Directory: uploads/<stem>_preprocessed/
+                            saliency_dir = Path("uploads") / f"{stem}_preprocessed"
+                            candidate = saliency_dir / f"{stem}_preprocessed_saliency{suffix}"
+
+                            # Fallback: any saliency file in the dir if default not found
+                            if not candidate.is_file() and saliency_dir.is_dir():
+                                for p in saliency_dir.glob("*saliency*.*"):
+                                    candidate = p
+                                    break
+
+                            if candidate.is_file():
+                                st.image(
+                                    Image.open(candidate),
+                                    caption="Saliency Map",
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.info(
+                                    "Saliency map not found in “uploads/" \
+                                    f"{stem}_preprocessed/”. Make sure the preprocessing "
+                                    "step saves the map with ‘_saliency’ in its name."
+                                )
+                        except Exception as e:
+                            st.warning(f"Could not load saliency map: {e}")
+
+                    # Handle API errors
                     else:
                         try:
                             err = r.json().get("error", "")
                         except ValueError:
                             err = r.text
+
                         if "No face detected" in err:
                             st.warning(
                                 "No face detected in the image :(\n"

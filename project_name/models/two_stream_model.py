@@ -1,7 +1,7 @@
 """
 2-stream Model (v1.0) ran on PYTHON 3.10.8
 
-RUN FILE WITH THESE ARGS: --preproc-root project_name/data/preprocessed_dataset/preprocessed_eye_align --recon-root project_name/data/3DRecon
+RUN FILE WITH THESE ARGS: --preproc-root project_name/data/preprocessed_dataset/preprocessed_no_background --recon-root project_name/data/3DRecon
 libraries to import: reqs_2stream.txt
 """
 from __future__ import annotations

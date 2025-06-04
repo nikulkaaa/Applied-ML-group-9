@@ -1,98 +1,138 @@
-import os
-# tensorfloww issuess
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+"""
+Inference script for the baseline CNN.
+Predicts whether a 128×128 pre-processed face is real or fake
+and saves a Grad-CAM saliency overlay.
 
+Usage:
+    python app/predict.py <path/to/image/or/folder>
+"""
+
+import os
 import sys
 import argparse
 import json
-
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.preprocessing import image as kimage
+import cv2
+
 
 MODEL_PATH = "saved_models/baseline_model.keras"
-IMG_EXTS = (".jpg", ".jpeg", ".png")
+IMG_EXTS   = (".jpg", ".jpeg", ".png")
+UPLOADS_ROOT = "uploads"
+
 
 _model = None
 
+
 def load_model():
-    """Load and cache the saved Keras model."""
+    """Lazy-load the saved Keras model and attach .last_conv_layer_name."""
     global _model
     if _model is None:
         try:
             _model = tf.keras.models.load_model(MODEL_PATH)
             _model.trainable = False
+            # attach last conv name if not present
+            if not hasattr(_model, "last_conv_layer_name"):
+                for layer in reversed(_model.layers):
+                    if isinstance(layer, tf.keras.layers.Conv2D):
+                        _model.last_conv_layer_name = layer.name
+                        break
+                else:
+                    raise ValueError("No Conv2D layer found in the model.")
         except Exception as e:
             print(json.dumps({"error": f"Error loading model: {e}"}))
-            sys.exit(1)
+            return None
     return _model
 
 
 def load_and_normalize(img_path: str) -> np.ndarray:
-    """
-    Load a 128x128 image and scale pixels to [0,1]. Returns shape (1,128,128,3).
-    """
-    img = kimage.load_img(img_path, target_size=(128,128))
-    arr = kimage.img_to_array(img)
-    arr = arr / 255.0
+    img = kimage.load_img(img_path, target_size=(128, 128))
+    arr = kimage.img_to_array(img) / 255.0
     return np.expand_dims(arr, axis=0)
 
 
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
+    grad_model = tf.keras.models.Model(
+        [model.inputs],
+        [model.get_layer(last_conv_layer_name).output, model.output]
+    )
+    with tf.GradientTape() as tape:
+        conv_out, preds = grad_model(img_array)
+        class_chan = preds[:, 0]          # sigmoid → single logit
+    grads        = tape.gradient(class_chan, conv_out)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    conv_out     = conv_out[0]            # (h,w,c)
+    heatmap      = conv_out @ pooled_grads[..., tf.newaxis]
+    heatmap      = tf.squeeze(heatmap)
+    heatmap      = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+    return heatmap.numpy()
+
+
+def overlay_heatmap_on_image(orig, heatmap, alpha=0.4):
+    heatmap = cv2.resize(heatmap, (orig.shape[1], orig.shape[0]))
+    heatmap = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+    return np.uint8(heatmap * alpha + orig)
+
+
 def predict_on_image(model, img_path: str) -> dict:
-    """
-    Predict a single image, returning JSON-serializable dict with label & confidence.
-    """
     x = load_and_normalize(img_path)
-    probs = model.predict(x, verbose=0)[0]
-    idx = int(np.argmax(probs))
-    label = "real" if idx == 1 else "fake"
-    confidence = float(probs[idx])
-    return {"label": label, "confidence": confidence}
+    if x is None:
+        return {"error": "Failed to load image."}
+
+    prob = model.predict(x, verbose=0)[0][0]
+    label = "real" if prob >= 0.5 else "fake"
+    confidence = float(prob) if label == "real" else float(1.0 - prob)
+    result = {"label": label, "confidence": confidence}
+
+    try:
+        orig = kimage.img_to_array(
+            kimage.load_img(img_path, target_size=(128, 128))
+        ).astype(np.uint8)
+        heatmap = make_gradcam_heatmap(x, model, model.last_conv_layer_name)
+        overlay = overlay_heatmap_on_image(orig, heatmap)
+
+        saliency_path_abs = os.path.splitext(img_path)[0] + "_saliency.png"
+        cv2.imwrite(
+            saliency_path_abs,
+            cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR)
+        )
+
+        # Return path relative to /uploads so FastAPI can serve it
+        saliency_rel = os.path.relpath(saliency_path_abs, start=UPLOADS_ROOT)
+        result["saliency"] = f"{UPLOADS_ROOT}/{saliency_rel}".replace(os.sep, "/")
+
+    except Exception as e:
+        result["error"] = f"Grad-CAM failed: {e}"
+
+    return result
 
 
-def normalize_missing_dir(path: str) -> str:
-    """
-    If path doesn’t exist but ends with (.jpg|.jpeg)_preprocessed,
-    convert it to *_preprocessed (matching preproc_inference output).
-    """
-    if os.path.exists(path):
-        return path
-    for ext in (".jpg_preprocessed", ".jpeg_preprocessed"):
-        if path.endswith(ext):
-            alt = path[:-len(ext)] + "_preprocessed"
-            if os.path.isdir(alt):
-                return alt
-    return path
-
-
-def main(input_path: str):
-    input_path = normalize_missing_dir(input_path)
+def main(target: str):
     model = load_model()
+    if model is None:
+        return
 
-    # Determine target file or directory
-    if os.path.isfile(input_path):
-        img_file = input_path
-    elif os.path.isdir(input_path):
-        dir_path = input_path
-        imgs = [f for f in os.listdir(dir_path) if f.lower().endswith(IMG_EXTS)]
+    # Allow folder or single file
+    if os.path.isfile(target):
+        img_file = target
+    elif os.path.isdir(target):
+        imgs = [f for f in os.listdir(target) if f.lower().endswith(IMG_EXTS)]
         if not imgs:
-            print(json.dumps({"error": f"No images found in directory: {dir_path}"}))
-            sys.exit(1)
-        img_file = os.path.join(dir_path, imgs[0])
+            print(json.dumps({"error": f"No images in {target}"}))
+            return
+        img_file = os.path.join(target, imgs[0])
     else:
-        print(json.dumps({"error": f"Path not found: {input_path}"}))
-        sys.exit(1)
+        print(json.dumps({"error": f"Path not found: {target}"}))
+        return
 
-    # Predict on this single file
-    result = predict_on_image(model, img_file)
-    print(json.dumps(result))
+    print(json.dumps(predict_on_image(model, img_file)))
     sys.stdout.flush()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Classify a preprocessed face image or folder of preprocessed images"
-    )
-    parser.add_argument("path", help="Path to image file or folder")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("path", help="Image file or folder")
+    args = p.parse_args()
     main(args.path)

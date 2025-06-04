@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1) Install Miniconda locally if not avaliable since it is a prereq.
+# 1) Install Miniconda locally if not available since it is a prereq.
 # Miniconda must be installed at C:\Users\[insert_your_user_here]\miniconda3
 MINICONDA_DIR="${HOME}/miniconda3"
 # Default to Linux; we’ll override on Windows/MSYS
@@ -74,10 +74,18 @@ if ! "$CONDA_BIN" env list | grep -qE "^preproc_env"; then
   echo "[1/2] Creating preproc_env (Python 3.8)…"
   "$CONDA_BIN" create -y -n preproc_env python=3.8 pip
 
-  # Install dlib from the root of the repo
-  echo " - Installing dlib 19.22.99 from wheel…"
-  "$CONDA_BIN" run -n preproc_env --no-capture-output \
-    python -m pip install "./dlib-19.22.99-cp38-cp38-win_amd64.whl"
+  # Install dlib from the root of the repo.
+  # Use the source tar.gz on Linux/macOS, or Windows wheel if on Windows.
+  OS_NAME="$(uname -s)"
+  if [[ "$OS_NAME" == "Linux" || "$OS_NAME" == "Darwin" ]]; then
+    echo " - Installing dlib 19.22.0 from source tarball…"
+    "$CONDA_BIN" run -n preproc_env --no-capture-output \
+      python -m pip install "./dlib-19.22.0.tar.gz"
+  else
+    echo " - Installing dlib 19.22.99 from Windows wheel…"
+    "$CONDA_BIN" run -n preproc_env --no-capture-output \
+      python -m pip install "./dlib-19.22.99-cp38-cp38-win_amd64.whl"
+  fi
 
   echo " - Installing other preprocessing requirements…"
   "$CONDA_BIN" run -n preproc_env --no-capture-output \

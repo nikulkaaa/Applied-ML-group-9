@@ -1,5 +1,6 @@
-# gradcam_utils.py
-
+"""
+File to create saliency maps (Grad-CAM)
+"""
 import torch
 import numpy as np
 import cv2
@@ -58,7 +59,8 @@ def compute_gradcam(model, input_tensor, target_class=None, stream='rgb'):
     handle.remove()
 
     grads = input_used.grad
-    target_activations = activations[0]  # Last conv block output
+    # Last conv block output
+    target_activations = activations[0]
     pooled_grads = grads.mean(dim=[0, 2, 3])
 
     # Weighted sum of the activations
@@ -89,26 +91,26 @@ def show_gradcam_on_image(
     show         : if True (default) pop up with plt.imshow; otherwise just
                    return the uint8 overlay.
     """
-    # ---- prepare background image ------------------------------------------------
-    img = image_tensor.detach().cpu().permute(1, 2, 0).numpy()  # → HWC, float
-    if img.max() <= 1.0 + 1e-6:               # already [0,1]
+    # Prepare background image
+    img = image_tensor.detach().cpu().permute(1, 2, 0).numpy()
+    if img.max() <= 1.0 + 1e-6:
         img = (img * 255.0).astype(np.uint8)
-    else:                                     # assume [0,255]
+    else:
         img = img.astype(np.uint8)
 
-    # ---- prepare CAM -------------------------------------------------------------
+    # Prepare CAM 
     if heatmap.ndim == 3:
-        heatmap = heatmap.squeeze()           # (1,H,W) → (H,W)
+        heatmap = heatmap.squeeze() 
 
-    # resize to match the image (OpenCV wants WxH order!)
+    # resize to match the image
     cam = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
-    cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)  # → [0,1]
+    cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
 
     cam_uint8  = np.uint8(cam * 255)
-    cam_color  = cv2.applyColorMap(cam_uint8, cv2.COLORMAP_JET)  # BGR
-    cam_color  = cv2.cvtColor(cam_color, cv2.COLOR_BGR2RGB)      # RGB uint8
+    cam_color  = cv2.applyColorMap(cam_uint8, cv2.COLORMAP_JET) 
+    cam_color  = cv2.cvtColor(cam_color, cv2.COLOR_BGR2RGB)
 
-    # ---- blend -------------------------------------------------------------------
+    # Blend
     overlay = cv2.addWeighted(cam_color, alpha, img, 1.0 - alpha, 0)
 
     if show:
@@ -118,5 +120,5 @@ def show_gradcam_on_image(
         plt.title("Grad-CAM Overlay")
         plt.show(block=False)
 
-    return overlay  # uint8 RGB image
+    return overlay 
 

@@ -1,3 +1,9 @@
+"""
+Main moves files from the full dataset containing 190,000 images
+into new folders in order to create a subset of the dataset.
+Original dataset can be found at: https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images/data
+"""
+
 import os
 import shutil
 import random

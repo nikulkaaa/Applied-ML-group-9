@@ -1,3 +1,7 @@
+"""
+Initial file used for data exploration.
+"""
+
 import os
 import numpy as np
 import cv2
@@ -5,8 +9,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from insightface.app import FaceAnalysis
 from project_name.data.preprocessing import detect_face
-
-### We will tune this when we have all data from the sub-dataset preprocessed
 
 # Initialize the face analyzer model
 app = FaceAnalysis()
@@ -98,7 +100,7 @@ def estimate_age_gender_ethnicity(input_folder):
     plt.xlabel("Age")
     plt.show()
 
-    # Return the distributions for possible further analysis
+    # Return the distributions
     return np.mean(age_results), np.std(age_results), gender_results, ethnicity_results
 
 def process_images_for_exploration(input_folder):

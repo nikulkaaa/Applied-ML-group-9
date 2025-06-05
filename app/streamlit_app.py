@@ -1,3 +1,7 @@
+"""
+Script for the streamlit application.
+"""
+
 import streamlit as st
 import requests
 import json
@@ -6,20 +10,19 @@ from pathlib import Path
 import traceback
 
 st.set_page_config(layout="wide")
-st.title("🔍 Deepfake Detection")
+st.title("Deepfake Detection")
 
-# Layout
 img_col, ctrl_col = st.columns([6, 4])
 
 with ctrl_col:
-    #  Model selector
+    #  Choosing which model
     model_choice = st.radio(
         "Choose model version",
-        ["Baseline model", "Full model"],
-        index=0, # Default to Baseline model
+        ["Baseline model", "Full two-stream CNN model"],
+        index=0,
         help=(
             "*Baseline model* is fast and lightweight.  \n"
-            "*Full model* runs a 3D reconstruction pass for higher accuracy and deepfake detection."
+            "*Full model* runs a 3D reconstruction pass for higher accuracy."
         ),
     )
 
@@ -75,13 +78,13 @@ if uploaded_file:
             timeout_secs = 1800 # Max timeout for full model
 
             # Streaming Inference
-            st.info(f"Requesting analysis from: {endpoint}") # For debugging
+            st.info(f"Requesting analysis from: {endpoint}")
             try:
                 with st.spinner("Running pipeline…"):
                     response = requests.post(
                         endpoint, files=files, timeout=timeout_secs, stream=True
                     )
-                    response.raise_for_status() # Raise HTTPError for bad responses (400 or 500)
+                    response.raise_for_status()
 
                     status_placeholder = st.empty()
                     progress_bar = st.progress(0)
@@ -96,7 +99,6 @@ if uploaded_file:
                             continue
 
                         line = raw_line.strip()
-                        # st.text(f"(debug) API raw: {line}") # For debugging API output
 
                         if line.startswith("STATUS:"):
                             code = line.split("STATUS:", 1)[1].strip()
@@ -115,7 +117,7 @@ if uploaded_file:
                         else:
                             try:
                                 final_data = json.loads(line)
-                                current_progress = 100 # Mark as complete
+                                current_progress = 100 
                                 progress_bar.progress(current_progress)
                                 status_placeholder.text("Pipeline complete. Results below.")
                                 break 
@@ -131,7 +133,7 @@ if uploaded_file:
                     st.error("Pipeline completed, but no valid result data was received.")
                     st.stop()
 
-                # Display main prediction results (label, confidence, saliency) in ctrl_col
+                # Display main prediction results (label, confidence, saliency)
                 with ctrl_col:
                     # Determine if real or fake
                     is_real = final_data.get("image_is_real")
@@ -139,23 +141,22 @@ if uploaded_file:
                         is_real = (final_data.get("label") == "real")
                     
                     label_text = "Real!" if is_real else "Deepfake!"
-                    confidence_value = final_data.get("confidence", 0) * 100 # Convert to percentage
+                    confidence_value = final_data.get("confidence", 0) * 100
                     
                     st.success(f"**Prediction: {label_text}** ({confidence_value:.1f}% confidence)")
 
                     saliency_path_str = final_data.get("saliency")
                     if saliency_path_str:
                         try:
-                            # FastAPI serves content from UPLOAD_DIR at /uploads/
                             saliency_url = f"http://localhost:8000/uploads/{saliency_path_str}"
                             
                             st.image(
-                                saliency_url, # Pass the URL directly to st.image
+                                saliency_url,
                                 caption="Saliency Map",
                                 use_container_width=True,
                             )
                         except Exception as e:
-                            #  URL related errors or if image not found via URL
+                            #  URL related errors or if image not found with URL
                             st.warning(f"Could not load saliency map from URL '{saliency_url}': {e}")
                     else:
                         if model_choice == "Full model":
@@ -168,24 +169,21 @@ if uploaded_file:
                 st.error(f"API request failed: {e}")
             except Exception as e:
                 st.error(f"An unexpected error occurred in Streamlit app: {e}")
-                st.error(traceback.format_exc()) # for debugging
+                st.error(traceback.format_exc())
 
-            # -Display 3D Reconstruction Outputs
+            # Display 3D Reconstruction Outputs
             if model_choice == "Full model" and final_data and not error_lines:
                 st.markdown("---") 
-                st.subheader("🖼️ 3D Reconstruction Outputs")
+                st.subheader("3D Reconstruction Outputs")
                 
                 col1_3d, col2_3d, col3_3d = st.columns(3)
 
                 def display_st_image(column, image_path_str, caption_text):
                     if image_path_str:
                         try:
-                            # Construct the full URL to the image served by FastAPI's StaticFiles
-                            # FastAPI serves content from UPLOAD_DIR at /uploads/
                             image_url = f"http://localhost:8000/uploads/{image_path_str}"
                             
                             with column:
-                                # Streamlit's st.image can accept a URL
                                 st.image(image_url, caption=caption_text, use_container_width=True)
                         except Exception as e:
                             with column:

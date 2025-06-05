@@ -1,9 +1,7 @@
 """
-Inference script for the baseline CNN.
-Predicts whether a 128x128 pre-processed face is real or fake
-and saves a Grad-CAM saliency overlay.
-
-python app/predict.py <path/to/image/or/folder>
+Inference script for the baseline.
+Predicts whether a preprocessed face is real or fake
+and saves the Grad-CAM.
 """
 
 import os
@@ -29,7 +27,6 @@ def load_model():
         try:
             _model = tf.keras.models.load_model(MODEL_PATH)
             _model.trainable = False
-            # attach last conv name if not present
             if not hasattr(_model, "last_conv_layer_name"):
                 for layer in reversed(_model.layers):
                     if isinstance(layer, tf.keras.layers.Conv2D):
@@ -59,7 +56,7 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
         class_chan = preds[:, 0]
     grads        = tape.gradient(class_chan, conv_out)
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-    conv_out = conv_out[0]            # (h,w,c)
+    conv_out = conv_out[0]
     heatmap = conv_out @ pooled_grads[..., tf.newaxis]
     heatmap = tf.squeeze(heatmap)
     heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
@@ -86,10 +83,10 @@ def predict_on_image(model, img_path: str) -> dict:
         label = "real"
 
     if label == "fake":
-        # Confidence in "fake" is P(fake) itself
+        # Fake prob is P(fake)
         confidence = float(prob_from_model_is_P_fake)
     else: # label == "real"
-        # Confidence in "real" is P(real) = 1.0 - P(fake)
+        # Real prob is P(real) = 1.0 - P(fake)
         confidence = float(1.0 - prob_from_model_is_P_fake)
 
     result = {"label": label, "confidence": confidence}

@@ -1,3 +1,7 @@
+"""
+File  to populate the repository with the dataset instead of pushing it (bad practice).
+"""
+
 import gdown
 import zipfile
 import os

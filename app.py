@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Deepfake Recognition API: baseline + FULL pipeline
  + /upload-image/        -> preprocess : baseline-predict
@@ -132,9 +131,11 @@ async def upload_image(file: UploadFile = File(...)):
     # Create a unique directory for this specific upload and its processing
     # This will be uploads/[filename]_uuid/
     unique_upload_dir = UPLOAD_DIR / f"{file.filename.split('.')[0]}_{request_id}"
-    unique_upload_dir.mkdir(exist_ok=True) # Create the main unique directory
+    # Create the main unique directory
+    unique_upload_dir.mkdir(exist_ok=True)
     
-    dest = unique_upload_dir / file.filename # Save the file inside this unique dir
+    # Save the file inside this unique dir
+    dest = unique_upload_dir / file.filename
     contents = await file.read()
     with open(dest, "wb") as fh:
         fh.write(contents)
@@ -218,9 +219,11 @@ async def upload_image_full(file: UploadFile = File(...)):
 
     # Create a unique directory for this specific upload and its processing
     unique_upload_dir = UPLOAD_DIR / f"{file.filename.split('.')[0]}_{request_id}"
-    unique_upload_dir.mkdir(exist_ok=True) # Create the main unique directory
-    
-    dest = unique_upload_dir / file.filename # Save the file inside this unique dir
+    # Create the main unique directory
+    unique_upload_dir.mkdir(exist_ok=True)
+
+    # Save the file inside this unique dir
+    dest = unique_upload_dir / file.filename
     contents = await file.read()
     with open(dest, "wb") as fh:
         fh.write(contents)

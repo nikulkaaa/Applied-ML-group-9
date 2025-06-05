@@ -1,8 +1,7 @@
 """
-2-stream Model (v1.0) ran on PYTHON 3.10.8
+two_stream_model (v2.0) ran on PYTHON 3.10.16
+TODO: implement requirements as they are slightly different here
 
-RUN FILE WITH THESE ARGS: --preproc-root project_name/data/preprocessed_dataset/preprocessed_no_background --recon-root project_name/data/3DRecon
-libraries to import: reqs_2stream.txt
 """
 from __future__ import annotations
 import os
@@ -61,7 +60,7 @@ class DeepFake3DFullDataset(Dataset):
         self.transform    = transform
         self.cache_dir    = Path(cache_dir) if cache_dir else None
 
-        # ─── locate/Create the pickle index file ───────────────
+        # locate/Create the pickle index file
         idx_file = (self.cache_dir or Path(".")) / "dataset_index.pkl"
 
         def _load_cached() -> list | None:
@@ -75,7 +74,6 @@ class DeepFake3DFullDataset(Dataset):
             except (EOFError, pickle.UnpicklingError):
                 return None
 
-        # 1) try cache – fall back to fresh scan if necessary
         self.samples = _load_cached()
         if self.samples is None:
             self.samples = []
@@ -99,13 +97,11 @@ class DeepFake3DFullDataset(Dataset):
 
             print(f"Indexed {len(self.samples):,} samples")
 
-            # overwrite the cache atomically
             if idx_file.parent:
                 idx_file.parent.mkdir(parents=True, exist_ok=True)
             with idx_file.open("wb") as f:
                 pickle.dump(self.samples, f)
 
-        # 2) optional sub-sampling for K-fold
         if indices is not None:
             self.samples = [self.samples[i] for i in indices]
 
@@ -113,10 +109,6 @@ class DeepFake3DFullDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    # ─────────────────────────────────────────────────────────
-    # inside  DeepFake3DFullDataset
-    # replace the whole method with the version below
-    # ─────────────────────────────────────────────────────────
     def _find_by_prefix(self, root_dir: Path, prefix: str) -> Path | None:
         """
         Return the first file in *root_dir* whose **filename starts with**
@@ -125,16 +117,14 @@ class DeepFake3DFullDataset(Dataset):
         “prefix+ext” probe misses (e.g. uncommon extension or uppercase
         suffix).
         """
-        # 1) exact probe for common extensions (.png/.jpg/.jpeg)
         for ext in self.exts:
             cand = root_dir / f"{prefix}{ext}"
             if cand.exists():
                 return cand
 
-        # 2) relaxed glob search  (prefix matches but ext may differ)
         hits = sorted(root_dir.glob(f"{prefix}.*"))
         if hits:
-            return hits[0]          # deterministic pick
+            return hits[0]
 
         return None
 
@@ -170,13 +160,13 @@ class DeepFake3DFullDataset(Dataset):
             label = torch.tensor(int(d["label"]))
         else:
             m = self.samples[idx]
-            orig    = self._load_tensor(m["orig"],  True)
-            rend    = self._load_tensor(m["rend"],  True)
-            depth   = self._load_tensor(m["depth"], False)
+            orig = self._load_tensor(m["orig"],  True)
+            rend = self._load_tensor(m["rend"],  True)
+            depth = self._load_tensor(m["depth"], False)
             normals = self._load_tensor(m["norm"],  True)
-            hw      = orig.shape[-2:]
-            rend    = self._resize(rend,   hw)
-            depth   = self._resize(depth,  hw)
+            hw = orig.shape[-2:]
+            rend = self._resize(rend,   hw)
+            depth = self._resize(depth,  hw)
             normals = self._resize(normals,hw)
 
             rgb_e, dep_e, norm_e = self._errors(orig, rend, depth, normals)
@@ -211,9 +201,6 @@ class DeepFake3DFullDataset(Dataset):
         err_stack = torch.cat([rgb_e, dep_e, norm_e], 0)
         return orig, rend, err_stack, label
 
-# ──────────────────────────────────────────────────────────────────────────
-# K-FOLD DATALOADERS  ▸  ONE DATASET OBJECT RE-USED
-# ──────────────────────────────────────────────────────────────────────────
 def build_kfold_loaders(
     preproc_root: str | Path,
     recon_root:   str | Path,
@@ -235,7 +222,7 @@ def build_kfold_loaders(
     if len(full_ds) == 0:
         raise RuntimeError(
             f"No samples were indexed under:\n"
-            f"  • {preproc_root}\n  • {recon_root}\n"
+            f"  - {preproc_root}\n  - {recon_root}\n"
             "Check paths / file naming conventions.")
 
     labels = np.array([s["label"] for s in full_ds.samples])
@@ -626,13 +613,13 @@ class Trainer:
         best_val_loss     = float("inf")
 
         for epoch in range(1, epochs + 1):
-            # ─ train ────────────────────────────────────────────
+            # train 
             tr_p, tr_y, tr_l = self._iter(tr_loader, True)
             tr_acc = ((tr_p > 0.5).astype(int) == tr_y).mean()
             if self.sched:
                 self.sched.step()
 
-            # ─ validate ─────────────────────────────────────────
+            # validate
             vl_p, vl_y, vl_l = self._iter(vl_loader, False)
             vl_acc = ((vl_p > 0.5).astype(int) == vl_y).mean()
             auc    = roc_auc_score(vl_y, vl_p)
@@ -640,7 +627,7 @@ class Trainer:
             f1     = f1_score(vl_y, (vl_p > 0.5).astype(int))
             val_loss = vl_l.mean()
 
-            # ─ history & checkpoint ─────────────────────────────
+            # history & (possibly) checkpoint
             self.history["train_loss"].append(tr_l.mean())
             self.history["train_acc"].append(tr_acc)
             self.history["val_loss"].append(val_loss)
@@ -656,22 +643,37 @@ class Trainer:
                 f"AUC={auc:.4f} EER={eer:.4f} F1={f1:.4f}"
             )
 
-            # ─ save best AUC model ──────────────────────────────
+            # save best‐AUC as TORCHSCRIPT
             if auc > self.best_auc:
                 self.best_auc = auc
-                torch.save(self.model.state_dict(), self.dir / "best.pt")
 
-            # ─── EARLY-STOPPING ────────────────────────────────
-            if val_loss < best_val_loss - 1e-4:          # significant improvement
+                ts_path = self.dir / "best.pt"
+
+                dummy_rgb = torch.randn(1, 3, 224, 224).to(self.dev)
+                dummy_err = torch.randn(1, 3, 224, 224).to(self.dev)
+                self.model.eval()
+                try:
+                    ts_model = torch.jit.trace(self.model, (dummy_rgb, dummy_err))
+                    torch.jit.save(ts_model, ts_path)
+                    print(f"[✓] Saved TorchScript checkpoint at {ts_path}")
+                except Exception as e:
+                    print(f"[✗] TorchScript trace failed: {e}")
+                    torch.save(self.model.state_dict(), ts_path)
+                    print(f"[!] Saved raw state_dict fallback at {ts_path}")
+
+            # EARLY-STOPPING 
+            if val_loss < best_val_loss - 1e-4:
                 best_val_loss     = val_loss
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= patience:
-                    print(f"Early stopping triggered (no val-loss improvement "
-                        f"for {patience} epochs).")
+                    print(f"Early stopping triggered (no val-loss improvement for {patience} epochs).")
                     break
+
         return self.history
+
+
 
 
 """
@@ -776,10 +778,10 @@ def main() -> None:
         train_final_acc = history["train_acc"][-1]
         fold_metrics.append(dict(
             train_acc = train_final_acc,
-            val_acc   = acc,
-            auc       = auc,
-            eer       = eer,
-            f1        = f1))
+            val_acc = acc,
+            auc = auc,
+            eer = eer,
+            f1 = f1))
 
         cm = confusion_matrix(vl_y, vl_pred)
         plt.figure()

@@ -1,3 +1,8 @@
+"""
+Inference script for the preprocessing.
+Outputs the preprocessed image.
+"""
+
 import os
 import sys
 import cv2
@@ -38,8 +43,8 @@ def align_face(face_img):
 
 def apply_face_mask(aligned_face):
     """Return aligned_face with everything outside its convex-hull landmark
-    removed (set to black). If landmarks aren't found we return the original
-    *aligned_face* unchanged."""
+    removed. If landmarks aren't found we return the original
+    aligned_face unchanged."""
     gray = cv2.cvtColor(aligned_face, cv2.COLOR_RGB2GRAY)
     dets = detector(gray)
     if len(dets) == 0:
@@ -56,10 +61,10 @@ def apply_face_mask(aligned_face):
     return aligned_face * mask_3c
 
 def detect_face(image_path: str, margin: int = 10, img_size=(128, 128)):
-    """Detect, align, mask & resize a single face.
-
-    * Returns an RGB uint8 numpy array of shape (*img_size*,*img_size*,3) or
-      None if no face is detected.
+    """
+    Detect, align, mask & resize a single face.
+    Returns an RGB uint8 numpy array of shape (*img_size*,*img_size*,3) or
+    None if no face is detected.
     """
     img_bgr = cv2.imread(image_path)
     if img_bgr is None:
@@ -86,7 +91,7 @@ def detect_face(image_path: str, margin: int = 10, img_size=(128, 128)):
         x1, y1 = d.left(),  d.top()
         x2, y2 = d.right(), d.bottom()
 
-    # Expand box by *margin*
+    # Expand box by margin
     h, w = img_rgb.shape[:2]
     x1, y1 = max(0, x1 - margin), max(0, y1 - margin)
     x2, y2 = min(w, x2 + margin), min(h, y2 + margin)

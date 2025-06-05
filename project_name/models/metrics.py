@@ -1,3 +1,7 @@
+"""
+Classification metrics: accuracy, F1 score, ROC AUC, confusion matrix and Error
+"""
+
 from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from typing import List, Dict, Any, Union
 import numpy as np

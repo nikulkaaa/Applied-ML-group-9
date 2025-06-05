@@ -134,7 +134,7 @@ def run_kfold():
         val_paths = filepaths[val_idx]
         val_labels = labels[val_idx]
 
-        # 3) Build tf.data.Datasets (labels are scalars now)
+        # Build tf.data.Datasets (labels are scalars now)
         train_ds = make_dataset(train_paths, train_labels, BATCH_SIZE, shuffle=True, augment=True)
         val_ds   = make_dataset(val_paths,   val_labels,   BATCH_SIZE, shuffle=False, augment=False)
 
@@ -171,16 +171,16 @@ def run_kfold():
         for images_batch, labels_batch in val_ds:
             # images_batch: shape (batch_size, 128,128,3), values in [0,1]
             for i in range(images_batch.shape[0]):
-                # 1) Prepare a single image for Grad-CAM
+                # Prepare a single image for Grad-CAM
                 img_tensor = tf.expand_dims(images_batch[i], axis=0)  # shape (1,128,128,3)
                 
-                # 2) Compute Grad-CAM heatmap
+                # Compute Grad-CAM heatmap
                 heatmap = make_gradcam_heatmap(img_tensor, model, model.last_conv_layer_name)
                 
-                # 3) Convert image back to uint8 for display
+                # Convert image back to uint8 for display
                 orig_img = (images_batch[i].numpy() * 255).astype(np.uint8)
                 
-                # 4) Overlay and show
+                # Overlay and show
                 display_gradcam(orig_img, heatmap)
                 
                 shown += 1

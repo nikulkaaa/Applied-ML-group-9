@@ -1,29 +1,24 @@
-#!/usr/bin/env python
 """
-python app/predict_full.py <preproc_dir> <deca_dir>
-
 Args
-    preproc_dir - folder containing the 2-D face crop (exactly one image expected)
-    deca_dir - folder produced by DECA (contains depth_*, normals_*, orig_rendered_* files)
+    preproc_dir - folder containing the 2-D face crop
+    deca_dir - folder produced by DECA
 
 Outputs (a JSON dict)
-    image_is_real - boolean prediction
-    confidence - model confidence in [0,1]
-    saliency - relative path to the saved Grad-CAM-like overlay (or null if unavailable)
-    rendered_3d_image - relative path to the DECA rendered image (or null)
-    depth_map_image - relative path to the DECA depth map (or null)
-    normals_map_image - relative path to the DECA normals map (or null)
+    image_is_real 
+    confidence in [0,1]
+    saliency (relative path to the Grad-CAM)
+    rendered_3d_image (relative path)
+    depth_map_image (relative path)
+    normals_map_image (relative path)
 
 """
 
 from __future__ import annotations
-
 import sys
 import os
 import json
 import argparse
 from pathlib import Path
-
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -31,12 +26,11 @@ import cv2
 from torchvision import transforms
 from PIL import Image
 
-# Config
-MODEL_ROOT = Path("checkpoints") # expects checkpoints/fold_{i}/best.pt
+MODEL_ROOT = Path("checkpoints")
 IMG_SIZE = 224 
 IMG_EXTS = (".png", ".jpg", ".jpeg")
 UPLOADS_ROOT = "uploads"
-DEVICE = torch.device("cpu") # or "cuda:0" for gpu
+DEVICE = torch.device("cpu")
 
 Path(UPLOADS_ROOT).mkdir(parents=True, exist_ok=True)
 
@@ -84,8 +78,8 @@ def overlay_heatmap(orig: np.ndarray, heatmap: np.ndarray, alpha: float = 0.4) -
 
 def save_saliency(orig: np.ndarray, saliency_map: np.ndarray, out_base: Path) -> str:
     """
-    Save a blended (Grad-CAM) overlay at out_base.png, returning its path relative to UPLOADS_ROOT.
-    out_base is a Path like `uploads/<filename>_preprocessed/<filename>_saliency`.
+    Save a Grad-CAM overlay at out_base.png, returning its path relative to UPLOADS_ROOT.
+    out_base is a Path.
     """
     out_path = out_base.with_suffix(".png")
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -271,7 +265,7 @@ def main(preproc_dir: Path, deca_dir: Path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full-model inference (2-D + 3-D) with saliency")
-    parser.add_argument("preproc_dir", help="Directory with the 2-D face crop (one image expected)")
+    parser.add_argument("preproc_dir", help="Directory with the 2-D face crop")
     parser.add_argument("deca_dir",    help="Directory containing DECA outputs (depth_*, normals_*, orig_rendered_*)")
     args = parser.parse_args()
 

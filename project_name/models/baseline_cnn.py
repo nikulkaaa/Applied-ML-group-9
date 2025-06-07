@@ -193,7 +193,6 @@ def run_kfold():
         model.save(os.path.join(save_dir, f"baseline_fold_{fold_idx}.keras"))
 
     # Summarize across folds
-    import pandas as pd
     df = pd.DataFrame(fold_metrics)
     numeric_df = df.drop(columns=["confusion_matrix"], errors="ignore")
     summary = numeric_df.agg(["mean", "std"])

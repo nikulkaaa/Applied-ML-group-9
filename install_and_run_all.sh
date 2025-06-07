@@ -1,20 +1,9 @@
 #!/usr/bin/env bash
-# Combined installer for DECA + Pre-/Post-processing + Web UI
-# ╭──────────────────────────────────────────────────────────────╮
-# │ Usage: ./install_and_run_all.sh [deca_env]                  │
-# │        deca_env – Conda env name for DECA  (default: deca_env)│
-# ╰──────────────────────────────────────────────────────────────╯
-
 set -euo pipefail
 
-###############################################################################
-# 0. CLI argument                                                              #
-###############################################################################
-DECA_ENV=${1:-deca_env}   # ← default DECA environment name
+DECA_ENV=${1:-deca_env}
 
-###############################################################################
-# 1. Miniconda bootstrap (trust existing folder first)                         #
-###############################################################################
+# 1. Miniconda bootstrap (trust existing folder first)
 MINICONDA_DIR="${HOME}/miniconda3"
 INSTALLER_URL_BASE="https://repo.anaconda.com/miniconda"
 
@@ -49,9 +38,7 @@ else
   fi
 fi
 
-###############################################################################
-# 2. Locate conda                                                             #
-###############################################################################
+# 2. Locate conda
 if command -v conda &>/dev/null; then
   CONDA_BIN="$(command -v conda)"
 elif [ -x "${MINICONDA_DIR}/bin/conda" ]; then
@@ -66,9 +53,6 @@ else
 fi
 echo ">>> Using conda at: ${CONDA_BIN}"
 
-###############################################################################
-# Helper utilities                                                            #
-###############################################################################
 conda_env_exists() { "${CONDA_BIN}" env list | awk '{print $1}' | grep -Fxq "$1"; }
 conda_run()       { local env="$1"; shift; "${CONDA_BIN}" run -n "${env}" --no-capture-output "$@"; }
 
@@ -79,9 +63,8 @@ else
   GPU=false; CUDA_TAG=cpu
 fi
 
-###############################################################################
-# 3. Environment: DECA                                                        #
-###############################################################################
+
+# 3. Create environment: deca_env
 if ! conda_env_exists "${DECA_ENV}"; then
   echo ">>> [1/3] Creating ${DECA_ENV} (Python 3.8)…"
   "${CONDA_BIN}" create -y -n "${DECA_ENV}" python=3.8 pip
@@ -114,9 +97,8 @@ else
   echo ">>> ${DECA_ENV} already exists – skipping creation."
 fi
 
-###############################################################################
-# 4. Environment: preproc_env                                                 #
-###############################################################################
+
+# 4. Create environment: preproc_env
 if ! conda_env_exists preproc_env; then
   echo ">>> [2/3] Creating preproc_env (Python 3.8)…"
   "${CONDA_BIN}" create -y -n preproc_env python=3.8 pip
@@ -133,16 +115,15 @@ else
   echo ">>> preproc_env already exists – skipping creation."
 fi
 
-###############################################################################
-# 5. Environment: predict_env                                                 #
-###############################################################################
+
+# 5. Create environment: predict_env
 if ! conda_env_exists predict_env; then
   echo ">>> [3/3] Creating predict_env (Python 3.10)…"
   "${CONDA_BIN}" create -y -n predict_env python=3.10 pip
 
   echo ">>> Installing CPU-only PyTorch 2.7.0…"
-  conda_run predict_env pip install torch==2.7.0 \
-    -f https://download.pytorch.org/whl/cpu/torch_stable.html
+    conda_run predict_env pip install torch==2.7.0 \
+      -f https://download.pytorch.org/whl/cpu/torch_stable.html
 
   echo ">>> Installing prediction stack & web back-ends…"
   conda_run predict_env pip install -r requirements_predict.txt
@@ -151,9 +132,8 @@ else
   echo ">>> predict_env already exists – skipping creation."
 fi
 
-###############################################################################
-# 6. Launch web services (FastAPI + Streamlit)                                #
-###############################################################################
+
+# 6. Launch FastAPI + Streamlit
 echo ">>> Starting FastAPI on http://localhost:8000"
 conda_run predict_env uvicorn app:app --reload --port 8000 &
 UVICORN_PID=$!

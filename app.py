@@ -1,11 +1,11 @@
 """
 Deepfake Recognition API: baseline + FULL pipeline
- + /upload-image/        -> preprocess : baseline-predict
- + /upload-image-full/   -> preprocess : DECA's demo_reconstruct.py : full-predict
+ + /upload-image/ -> preprocess : baseline-predict
+ + /upload-image-full/  -> preprocess : DECA's demo_reconstruct.py : full-predict
 
 Environments used
   - preproc_env   (Python 3.8)  - preprocessing
-  - deca_env      (Python 3.8)  - DECA 3D reconstruction
+  - deca_env  (Python 3.8)  - DECA 3D reconstruction
   - predict_env   (Python 3.10) - baseline + full models
 """
 
@@ -134,13 +134,11 @@ async def upload_image(file: UploadFile = File(...)):
     # Create the main unique directory
     unique_upload_dir.mkdir(exist_ok=True)
     
-    # Save the file inside this unique dir
     dest = unique_upload_dir / file.filename
     contents = await file.read()
     with open(dest, "wb") as fh:
         fh.write(contents)
 
-    # The preprocessed directory will now be inside the unique_upload_dir
     preproc_dir = unique_upload_dir / f"{dest.stem}_preprocessed"
     preproc_dir.mkdir(exist_ok=True)
 
@@ -228,18 +226,16 @@ async def upload_image_full(file: UploadFile = File(...)):
     with open(dest, "wb") as fh:
         fh.write(contents)
 
-    # The preprocessed directory will now be inside the unique_upload_dir
     preproc_dir = unique_upload_dir / f"{dest.stem}_preprocessed"
     preproc_dir.mkdir(exist_ok=True)
 
-    # Inside that preprocessed folder, create a "deca_output" subfolder
     deca_output_dir = preproc_dir / "deca_output"
     deca_output_dir.mkdir(exist_ok=True)
 
     def generate():
         def step(msg: str):
             yield f"STATUS: {msg}\n"
-            time.sleep(0.1)
+            import time; time.sleep(0.1)
 
         # Preprocessing
         yield from step("PREPROC_START")
@@ -252,7 +248,7 @@ async def upload_image_full(file: UploadFile = File(...)):
         )
         if pre.returncode == 2:
             yield from step("PREPROC_NO_FACE")
-            yield "ERROR: No face detected in the image.\n"
+            yield "ERROR: No face detected in the image, make sure to upload an image of a (clear) face.\n "
             return
         elif pre.returncode != 0:
             yield from step("PREPROC_ERROR")
@@ -304,14 +300,18 @@ async def upload_image_full(file: UploadFile = File(...)):
         result_json_str = pred.stdout.strip()
         result = json.loads(result_json_str)
 
-        # Adjust paths to be relative to UPLOAD_DIR for Streamlit to access via /uploads/
         for key in ["saliency", "rendered_3d_image", "depth_map_image", "normals_map_image"]:
             if key in result and result[key]:
-                abs_path = Path(result[key])
-                relative_path = abs_path.relative_to(UPLOAD_DIR)
-                result[key] = str(relative_path).replace("\\", "/")
+                abs_path = Path(result[key]).resolve()
+                uploads_root_abs = UPLOAD_DIR.resolve()
+                try:
+                    relative_path = abs_path.relative_to(uploads_root_abs)
+                    result[key] = str(relative_path).replace("\\", "/")
+                except ValueError:
+                    result[key] = abs_path.name
 
         yield json.dumps(result) + "\n"
+
 
     return StreamingResponse(generate(), media_type="text/plain")
 

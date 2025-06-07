@@ -22,7 +22,7 @@ with ctrl_col:
         index=0,
         help=(
             "*Baseline model* is fast and lightweight.  \n"
-            "*Full model* runs a 3D reconstruction pass for higher accuracy."
+            "*Full two-stream CNN model* runs a 3D reconstruction pass for higher accuracy."
         ),
     )
 
@@ -64,7 +64,7 @@ if uploaded_file:
                     "MODEL_START": {"text": "Running model prediction…", "value": 50},
                     "MODEL_DONE": {"text": "Model prediction done.", "value": 90},
                 }
-            else: # Full model
+            else: # Full two-stream CNN model
                 endpoint = "http://localhost:8000/upload-image-full/"
                 progress_stages = {
                     "PREPROC_START": {"text": "Preprocessing started…", "value": 0},
@@ -75,7 +75,7 @@ if uploaded_file:
                     "MODEL_DONE": {"text": "Model prediction done.", "value": 90},
                 }
             
-            timeout_secs = 1800 # Max timeout for full model
+            timeout_secs = 1800 # Max timeout for Full two-stream CNN model
 
             # Streaming Inference
             st.info(f"Requesting analysis from: {endpoint}")
@@ -156,10 +156,9 @@ if uploaded_file:
                                 use_container_width=True,
                             )
                         except Exception as e:
-                            #  URL related errors or if image not found with URL
                             st.warning(f"Could not load saliency map from URL '{saliency_url}': {e}")
                     else:
-                        if model_choice == "Full model":
+                        if model_choice == "Full two-stream CNN model":
                              st.info("Saliency map not generated or not available.")
 
 
@@ -172,7 +171,7 @@ if uploaded_file:
                 st.error(traceback.format_exc())
 
             # Display 3D Reconstruction Outputs
-            if model_choice == "Full model" and final_data and not error_lines:
+            if model_choice == "Full two-stream CNN model" and final_data and not error_lines:
                 st.markdown("---") 
                 st.subheader("3D Reconstruction Outputs")
                 

@@ -1,278 +1,213 @@
-"""
-Args
-    preproc_dir - folder containing the 2-D face crop
-    deca_dir - folder produced by DECA
-
-Outputs (a JSON dict)
-    image_is_real 
-    confidence in [0,1]
-    saliency (relative path to the Grad-CAM)
-    rendered_3d_image (relative path)
-    depth_map_image (relative path)
-    normals_map_image (relative path)
-
-"""
-
 from __future__ import annotations
+"""
+Full-model inference script.
+"""
+
 import sys
-import os
 import json
 import argparse
 from pathlib import Path
+from typing import List, Tuple
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 import cv2
-from torchvision import transforms
-from PIL import Image
 
 MODEL_ROOT = Path("checkpoints")
-IMG_SIZE = 224 
+IMG_SIZE = 224
 IMG_EXTS = (".png", ".jpg", ".jpeg")
-UPLOADS_ROOT = "uploads"
-DEVICE = torch.device("cpu")
+UPLOADS_ROOT = Path("uploads")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-Path(UPLOADS_ROOT).mkdir(parents=True, exist_ok=True)
+UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
 
 def error_exit(msg: str, code: int = 2):
-    """Print a JSON error object and exit with given code."""
+    """Emit JSON error and terminate with ``code`` (default 2)."""
     print(json.dumps({"error": msg}))
     sys.exit(code)
 
 
 def first_file_containing(dirpath: Path, substring: str) -> Path | None:
-    """Recursively search dirpath for the first image file whose name contains `substring`."""
     for p in dirpath.rglob(f"*{substring}*"):
         if p.is_file() and p.suffix.lower() in IMG_EXTS:
             return p
     return None
 
 
-def load_and_resize_pil(path: Path, size: int) -> np.ndarray:
-    img = Image.open(path).convert("RGB")
-    img = img.resize((size, size), Image.BILINEAR)
-    return np.array(img, dtype=np.uint8)
+def load_tensor_img(path: Path, rgb: bool = True) -> torch.Tensor:
+    flag = cv2.IMREAD_COLOR if rgb else cv2.IMREAD_GRAYSCALE
+    img = cv2.imread(str(path), flag)
+    if img is None:
+        raise FileNotFoundError(f"Could not load: {path}")
+    if rgb:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img.astype(np.float32) / 255.0
+    if not rgb:
+        img = img[..., None]
+    return torch.from_numpy(img).permute(2, 0, 1)
 
 
-def pil_to_tensor(img: Image.Image) -> torch.Tensor:
-    return transforms.ToTensor()(img)
+# Error map functions
+def rgb_diff(orig: torch.Tensor, rend: torch.Tensor) -> torch.Tensor:
+    return torch.abs(orig - rend).mean(0, keepdim=True)
+
+def depth_inconsistency(depth: torch.Tensor, k: int = 5) -> torch.Tensor:
+    pad = k // 2
+    # pool per-channel
+    local = F.avg_pool2d(depth.unsqueeze(0), k, stride=1, padding=pad)[0]
+    dep_e = torch.abs(depth - local)
+    # now average channels exactly as training
+    if dep_e.shape[0] > 1:
+        dep_e = dep_e.mean(0, keepdim=True)
+    return dep_e
 
 
-def load_depth_gray(path: Path) -> np.ndarray:
-    arr = cv2.imread(str(path), cv2.IMREAD_ANYDEPTH | cv2.IMREAD_GRAYSCALE)
-    if arr is None:
-        raise FileNotFoundError(f"Cannot read depth image: {path}")
-    arr = cv2.resize(arr, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_NEAREST)
-    arr = arr.astype(np.float32)
-    return arr / (arr.max() + 1e-6)
+def normal_angle_error(normals: torch.Tensor, k: int = 5) -> torch.Tensor:
+    pad = k // 2
+    neigh = F.avg_pool2d(normals.unsqueeze(0), k, stride=1, padding=pad)[0]
+    neigh = F.normalize(neigh, dim=0, eps=1e-6)
+    ang = torch.acos(torch.clamp((normals * neigh).sum(0), -1.0, 1.0))
+    return ang.unsqueeze(0) / np.pi
+
+def compute_saliency(
+    rgb: torch.Tensor,
+    err: torch.Tensor,
+    model: torch.nn.Module,
+    cls_idx: int
+) -> np.ndarray:
+    rgb_ = rgb.clone().detach().requires_grad_(True)
+    model.zero_grad(set_to_none=True)
+    logits = model(rgb_, err)
+    logits[0, cls_idx].backward()
+    sal = rgb_.grad.detach().abs().mean(1)[0]
+    sal = sal / (sal.max() + 1e-6)
+    return sal.cpu().numpy()
 
 
-def overlay_heatmap(orig: np.ndarray, heatmap: np.ndarray, alpha: float = 0.4) -> np.ndarray:
-    heatmap = cv2.resize(heatmap, (orig.shape[1], orig.shape[0]))
+def save_saliency(orig: np.ndarray, smap: np.ndarray, out_base: Path) -> str:
+    """Overlay heat-map on top of orig image and then save it."""
+    out_path = out_base.with_suffix(".png")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    heatmap = cv2.resize(smap, (orig.shape[1], orig.shape[0]))
     heatmap = np.uint8(255 * heatmap)
     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
     heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-    blended = orig.astype(np.float32) * (1 - alpha) + heatmap.astype(np.float32) * alpha
-    return np.clip(blended, 0, 255).astype(np.uint8)
+    blended = orig.astype(np.float32) * 0.6 + heatmap.astype(np.float32) * 0.4
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+    cv2.imwrite(str(out_path), cv2.cvtColor(blended, cv2.COLOR_RGB2BGR))
+    return str(out_path.resolve())
 
+def _load_single_model(pt: Path):
+    return torch.jit.load(str(pt), map_location=DEVICE)
 
-def save_saliency(orig: np.ndarray, saliency_map: np.ndarray, out_base: Path) -> str:
-    """
-    Save a Grad-CAM overlay at out_base.png, returning its path relative to UPLOADS_ROOT.
-    out_base is a Path.
-    """
-    out_path = out_base.with_suffix(".png")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), cv2.cvtColor(overlay_heatmap(orig, saliency_map), cv2.COLOR_RGB2BGR))
-    uploads_root_str = str(UPLOADS_ROOT)
-    try:
-        rel = out_path.relative_to(uploads_root_str)
-        return f"{uploads_root_str}/{rel}".replace(os.sep, "/")
-    except ValueError:
-        return str(out_path).replace(os.sep, "/")
+def load_models() -> List[torch.nn.Module]:
+    models: List[torch.nn.Module] = []
+    if not MODEL_ROOT.is_dir():
+        error_exit(f"Checkpoint directory not found: {MODEL_ROOT}")
+    for fold_dir in sorted(MODEL_ROOT.glob("fold_*")):
+        pt = fold_dir / "best.pt"
+        if pt.is_file():
+            m = _load_single_model(pt).to(DEVICE)
+            m.eval()
+            models.append(m)
+    if not models:
+        error_exit(f"No models found under {MODEL_ROOT}")
+    return models
 
-def compute_saliency(rgb_batch: torch.Tensor, err_batch: torch.Tensor, models: list[torch.nn.Module]) -> np.ndarray:
-    """Return a normalized 2-D saliency map (H×W float in [0,1])."""
-    rgb_batch = rgb_batch.clone().detach().requires_grad_(True)
-    accumulated = torch.zeros_like(rgb_batch)
-
-    for m in models:
-        m.zero_grad(set_to_none=True)
-        out = m(rgb_batch, err_batch)
-        if out.numel() != 1:
-            out = out.view(-1)[0]
-        out.backward(retain_graph=True)
-        accumulated += rgb_batch.grad.detach().abs()
-        rgb_batch.grad.zero_()
-
-    saliency = accumulated.mean(dim=0)
-    saliency = saliency.mean(dim=0)
-    saliency = saliency / (saliency.max() + 1e-6)
-    return saliency.cpu().numpy()
-
-def load_fold_model(fold_dir: Path):
-    ckpt = fold_dir / "best.pt"
-    if not ckpt.is_file():
-        error_exit(f"Checkpoint not found: {ckpt}", code=1)
-
-    try:
-        model = torch.jit.load(str(ckpt), map_location=DEVICE)
-    except RuntimeError as e:
-        try:
-            maybe_dict = torch.load(str(ckpt), map_location="cpu")
-            if isinstance(maybe_dict, dict):
-                error_exit(
-                    f"Checkpoint in {fold_dir.name} appears to be a state_dict, not TorchScript.\n"
-                    "Please re-export this fold as TorchScript.",
-                    code=2,
-                )
-            else:
-                error_exit(f"Unable to interpret checkpoint at {ckpt}: {e}", code=1)
-        except Exception:
-            error_exit(f"Error loading checkpoint [{ckpt}]: {e}", code=1)
-
-    model.eval()
-    return model
-
-
-def ensemble_predict(rgb_batch: torch.Tensor, err_batch: torch.Tensor, models: list[torch.nn.Module]) -> float:
+def predict(models: List[torch.nn.Module], rgb: torch.Tensor, err: torch.Tensor) -> Tuple[float, float]:
+    """Return the probabilties of fake or real averaged over all models (folds)."""
     with torch.no_grad():
-        preds = []
-        for m in models:
-            out = m(rgb_batch, err_batch)
-            if out.numel() != 1:
-                out = out.view(-1)[0]
-            preds.append(torch.sigmoid(out))
-        return float(torch.stack(preds).mean().item())
+        ps = [F.softmax(m(rgb, err), dim=1) for m in models]
+        prob = torch.stack(ps).mean(0)[0]
+        return float(prob[0]), float(prob[1])
 
 def main(preproc_dir: Path, deca_dir: Path):
-    if not preproc_dir.is_dir():
-        error_exit(f"Preproc dir not found: {preproc_dir}", code=2)
-    if not deca_dir.is_dir():
-        error_exit(f"DECA dir not found: {deca_dir}", code=2)
-
-    face_crop: Path | None = None
+    face_crop = None
     for ext in IMG_EXTS:
-        candidates = list(preproc_dir.glob(f"*{ext}"))
-        if candidates:
-            face_crop = sorted(candidates)[0]
+        cand = list(preproc_dir.glob(f"*{ext}"))
+        if cand:
+            face_crop = sorted(cand)[0]
             break
     if face_crop is None:
-        error_exit(f"No image found in preproc_dir: {preproc_dir}", code=2)
+        error_exit(f"No image found in preproc_dir: {preproc_dir}")
 
+    depth_p = first_file_containing(deca_dir, "depth_")
+    norm_p  = first_file_containing(deca_dir, "normals_")
+    rend_p  = first_file_containing(deca_dir, "orig_rendered_")
+    if None in (depth_p, norm_p, rend_p):
+        error_exit("Missing one of: depth_*, normals_*, orig_rendered_* in the DECA output")
+
+    rgb_orig = load_tensor_img(face_crop, rgb=True)
+    depth_orig = load_tensor_img(depth_p, rgb=False)
+    normals_orig = load_tensor_img(norm_p, rgb=True)
+    rend_orig = load_tensor_img(rend_p, rgb=True)
+
+    H, W = rgb_orig.shape[1], rgb_orig.shape[2]
+
+    def _resize(t: torch.Tensor) -> torch.Tensor:
+        return F.interpolate(
+            t.unsqueeze(0), size=(H, W),
+            mode="bilinear", align_corners=False
+        )[0]
+
+    depth_r = _resize(depth_orig)
+    normals_r = _resize(normals_orig)
+    rend_r = _resize(rend_orig)
+
+    # Compute error maps at original‐crop resolution
+    rgb_e = rgb_diff(rgb_orig, rend_r)
+    dep_e = depth_inconsistency(depth_r)
+    norm_e = normal_angle_error(normals_r)
+
+    # Build the error stack
+    err_stack = torch.cat([rgb_e, dep_e, norm_e], dim=0)
+
+    rgb_input = rgb_orig.unsqueeze(0).to(DEVICE)
+    err_input = err_stack.unsqueeze(0).to(DEVICE)
+
+    # Ensemble prediction
+    models = load_models()
+    prob_fake, prob_real = predict(models, rgb_input, err_input)
+    is_fake    = prob_fake >= prob_real
+    confidence = prob_fake if is_fake else prob_real
+
+    # Saliency
+    saliency_path = None
     try:
-        pil_img = Image.open(face_crop).convert("RGB")
-    except Exception as e:
-        error_exit(f"Cannot open image {face_crop}: {e}", code=1)
-
-    pil_resized = pil_img.resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
-    orig_np = np.array(pil_resized, dtype=np.uint8)
-
-    tfm = transforms.ToTensor()
-    rgb_batch = tfm(pil_resized).unsqueeze(0).to(DEVICE)
-
-    depth_path = first_file_containing(deca_dir, "depth_")
-    norm_path  = first_file_containing(deca_dir, "normals_")
-    rend_path  = first_file_containing(deca_dir, "orig_rendered_")
-
-    if depth_path is None:
-        error_exit(f"No depth_* found under {deca_dir}", code=2)
-    if norm_path is None:
-        error_exit(f"No normals_* found under {deca_dir}", code=2)
-    if rend_path is None:
-        error_exit(f"No orig_rendered_* found under {deca_dir}", code=2)
-
-    depth_gray = load_depth_gray(depth_path)
-    depth_t = torch.from_numpy(depth_gray).unsqueeze(0)
-
-    def cv2_to_tensor(path: Path) -> torch.Tensor:
-        arr = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-        if arr is None:
-            raise FileNotFoundError(path)
-        if arr.ndim == 2:
-            arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
-        arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-        arr = cv2.resize(arr, (IMG_SIZE, IMG_SIZE), interpolation=cv2.INTER_LINEAR)
-        arr = arr.astype(np.float32) / 255.0
-        return torch.from_numpy(arr).permute(2, 0, 1)
-
-    rend_np_full = cv2_to_tensor(rend_path)
-    norm_np_full = cv2_to_tensor(norm_path)
-
-    orig_tensor_full = tfm(pil_resized)
-    rgb_e = torch.abs(orig_tensor_full - rend_np_full).mean(dim=0, keepdim=True)
-
-    depth_batched = depth_t.unsqueeze(0)
-    pad = 2
-    local = F.avg_pool2d(depth_batched, kernel_size=5, stride=1, padding=pad)[0]
-    dep_e = torch.abs(depth_t - local)
-
-    normals_batched = norm_np_full.unsqueeze(0)
-    neigh = F.avg_pool2d(normals_batched, kernel_size=5, stride=1, padding=pad)[0]
-    neigh = F.normalize(neigh, dim=0, eps=1e-6)
-    dot = (norm_np_full * neigh).sum(dim=0).clamp(-1.0, 1.0)
-    ang = torch.acos(dot)
-    norm_e = ang.unsqueeze(0) / np.pi
-
-    err_stack = torch.cat([rgb_e, dep_e, norm_e], dim=0).unsqueeze(0).to(DEVICE)
-
-    if not MODEL_ROOT.is_dir():
-        error_exit(f"Checkpoint root not found: {MODEL_ROOT}", code=1)
-
-    fold_dirs = sorted(
-        [d for d in MODEL_ROOT.iterdir() if d.is_dir() and d.name.startswith("fold_")],
-        key=lambda p: int(p.name.split("_")[-1]),
-    )
-    if not fold_dirs:
-        error_exit(f"No fold_* checkpoints under {MODEL_ROOT}", code=1)
-
-    models = [load_fold_model(f) for f in fold_dirs]
-
-    prob_real = ensemble_predict(rgb_batch, err_stack, models)
-    label = "real" if prob_real >= 0.5 else "fake"
-    confidence = prob_real if label == "real" else (1.0 - prob_real)
-
-    saliency_rel: str | None = None
-    try:
-        saliency_map = compute_saliency(rgb_batch, err_stack, models)
+        orig_np = (rgb_orig.permute(1,2,0).cpu().numpy() * 255).astype(np.uint8)
+        cls_idx = 0 if is_fake else 1
+        sal = compute_saliency(rgb_input, err_input, models[0], cls_idx)
         out_base = preproc_dir / f"{face_crop.stem}_saliency"
-        saliency_rel = save_saliency(orig_np, saliency_map, out_base)
+        saliency_path = save_saliency(orig_np, sal, out_base)
     except Exception as e:
-        saliency_rel = None
-        print(f"Warning: saliency generation failed → {e}", file=sys.stderr)
+        print(f"Warning: Saliency failed: {e}", file=sys.stderr)
 
-    def format_path_for_json(file_path: Path | None) -> str | None:
-        if file_path is None or not file_path.exists():
-            return None
-        return str(file_path).replace(os.sep, "/")
-
-    rendered_3d_rel = format_path_for_json(rend_path)
-    depth_map_rel = format_path_for_json(depth_path)
-    normals_map_rel = format_path_for_json(norm_path)
-
+    # JSON output
+    def _abs(p): return str(Path(p).resolve()) if p else None
     result = {
-        "image_is_real": label == "real",
-        "confidence": confidence,
-        "saliency": saliency_rel,
-        "rendered_3d_image": rendered_3d_rel,
-        "depth_map_image": depth_map_rel,
-        "normals_map_image": normals_map_rel,
-    }
+        "image_is_real":     not is_fake,
+        "confidence":        confidence,
+        "saliency":          _abs(saliency_path),
+        "rendered_3d_image": _abs(rend_p),
+        "depth_map_image":   _abs(depth_p),
+        "normals_map_image": _abs(norm_p),}
     print(json.dumps(result))
     sys.stdout.flush()
-    sys.exit(0)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Full-model inference (2-D + 3-D) with saliency")
-    parser.add_argument("preproc_dir", help="Directory with the 2-D face crop")
-    parser.add_argument("deca_dir",    help="Directory containing DECA outputs (depth_*, normals_*, orig_rendered_*)")
+    parser = argparse.ArgumentParser(
+        description="Full-model inference (2D + 3D) with saliency and fold-ensemble")
+    parser.add_argument("preproc_dir", help="Directory with the 2D face crop")
+    parser.add_argument("deca_dir", help="Directory containing DECA outputs (depth_, normals_, orig_rendered_)")
     args = parser.parse_args()
-
     try:
         main(Path(args.preproc_dir), Path(args.deca_dir))
     except SystemExit as e:
         sys.exit(e.code)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(json.dumps({"error": f"Internal error: {e}"}))
         sys.exit(1)

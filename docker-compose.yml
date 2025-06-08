@@ -2,7 +2,6 @@ version: "3.8"
 
 services:
   preprocessor:
-    platform: linux/amd64
     image: retinaface-preproc:latest
     build:
       context: .

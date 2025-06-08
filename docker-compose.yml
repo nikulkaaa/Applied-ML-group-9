@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  preprocessor:
+    platform: linux/amd64
+    image: retinaface-preproc:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.preprocess
+    volumes:
+      - .:/app
+
+  predictor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.basemodel
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    volumes:
+      - .:/app
+    depends_on:
+      - preprocessor

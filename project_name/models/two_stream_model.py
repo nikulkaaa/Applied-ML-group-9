@@ -262,6 +262,7 @@ class ConvBlock(nn.Module):
             nn.BatchNorm2d(out), nn.ReLU(inplace=True))
         self.pool = nn.MaxPool2d(2)
         self.drop = nn.Dropout2d(drop) if drop else nn.Identity()
+
     def forward(self, x):
         return self.drop(self.pool(self.conv(x)))
 
@@ -276,6 +277,7 @@ class StreamCNN(nn.Module):
             c = n
         self.blocks = nn.Sequential(*layers)
         self.gap = nn.AdaptiveAvgPool2d(1)
+
     def forward(self, x):
         return self.gap(self.blocks(x)).flatten(1)
 

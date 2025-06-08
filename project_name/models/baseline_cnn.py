@@ -172,7 +172,7 @@ def run_kfold():
             # images_batch: shape (batch_size, 128,128,3), values in [0,1]
             for i in range(images_batch.shape[0]):
                 # Prepare a single image for Grad-CAM
-                img_tensor = tf.expand_dims(images_batch[i], axis=0)  # shape (1,128,128,3)
+                img_tensor = tf.expand_dims(images_batch[i], axis=0)
                 
                 # Compute Grad-CAM heatmap
                 heatmap = make_gradcam_heatmap(img_tensor, model, model.last_conv_layer_name)

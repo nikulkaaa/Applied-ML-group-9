@@ -1,4 +1,4 @@
-# Applied Machine Learning Project (Group 9)🛠️
+# Applied Machine Learning Project (Group 9)
 
 **Deepfake Detection Model** 
 
@@ -12,10 +12,14 @@ Before you begin, ensure you have the following:
 
 ### Installation
 1. Clone the repository
+    ```bash
     git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
+    ```
 
 2. Run the setup script
+    ```bash
     ./run_pipeline.sh
+    ```
 
 This script will:
 1. Detect your OS (Windows, macOS, or Linux) and download the matching Miniconda installer.
@@ -26,3 +30,12 @@ This script will:
 
 Once installation completes, the script will automatically start the FastAPI server in the background:
 URL: http://localhost:8000
+
+### Populating the repository 
+If you'd like to train the models on your own or just explore the data used in this project, you can populate the repository by running the following command:
+
+```bash
+python project_name/data/populate_repo.py
+```
+The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
+

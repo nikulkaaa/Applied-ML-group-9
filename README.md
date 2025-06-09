@@ -26,3 +26,6 @@ This script will:
 
 Once installation completes, the script will automatically start the FastAPI server in the background:
 URL: http://localhost:8000
+
+The DECA model was taken from: https://github.com/yfeng95/DECA \
+Furthermore, it was edited for our specific use case. 

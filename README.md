@@ -14,7 +14,10 @@ Before you begin, ensure you have the following:
 1. Clone the repository
     git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
 
-2. Run the setup script
+2. Make the shell script executable
+    chmod +x run_pipeline.sh
+
+3. Run the setup script
     ./run_pipeline.sh
 
 This script will:

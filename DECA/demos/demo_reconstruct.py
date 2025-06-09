@@ -103,7 +103,6 @@ def main(args):
                 orig_img = data['original_image'][None].to(device)
                 _, orig_vis = deca.decode(codedict, render_orig=True,
                                           original_image=orig_img, tform=tform)
-
         if args.saveDepth:
             depth_t = deca.render.render_depth(opdict['trans_verts']).repeat(1, 3, 1, 1)
             depth_img = util.tensor2image(depth_t[0])  # H×W×3 uint8

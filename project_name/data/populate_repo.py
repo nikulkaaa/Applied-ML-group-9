@@ -4,6 +4,7 @@ Downloads and extracts:
 - raw_dataset.zip
 - preprocessed_no_background.zip
 - 3DRecon.zip
+- DECA.zip (into the root of the repository)
 """
 
 import gdown
@@ -24,6 +25,7 @@ def download_and_extract(file_id, output_name, extract_to="data/"):
 
     os.remove(output_name)
 
+
 # Dataset 1: raw_dataset.zip
 download_and_extract(
     file_id="1byygZ1WF5D4RwoTo0RK3aVDgNtAw-d-q",
@@ -40,4 +42,11 @@ download_and_extract(
 download_and_extract(
     file_id="1WNPLwmjo75i-E8b0yS_XzYn5clg2Gmx_",
     output_name="3DRecon.zip"
+)
+
+# Dataset 4: DECA.zip (extracted into root)
+download_and_extract(
+    file_id="1FJy731c2AnZL33jezub7Wm7Um7YW0IKs",
+    output_name="DECA.zip",
+    extract_to="." 
 )

@@ -27,5 +27,13 @@ This script will:
 Once installation completes, the script will automatically start the FastAPI server in the background:
 URL: http://localhost:8000
 
+### Populating the repository 
+If you'd like to train the models on your own or just explore the data used in this project, you can populate the repository by running the following command:
+
+```bash
+python project_name/data/populate_repo.py
+```
+The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
+
 The DECA model was taken from: https://github.com/yfeng95/DECA \
 Furthermore, it was edited for our specific use case. 

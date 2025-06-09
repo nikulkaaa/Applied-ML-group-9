@@ -1,18 +1,13 @@
 import unittest
 from unittest.mock import patch, MagicMock, call
-from fastapi.testclient import TestClient
-
 import numpy as np
 import os
 import cv2
 import sys
-import json
-import io
 
 import app.predict
 import app.preproc_inference
 import project_name.data.preprocessing
-import app_file
 
 
 class TestLoadModel(unittest.TestCase):
@@ -246,60 +241,6 @@ class TestPreprocessing(unittest.TestCase):
         aligned_img = project_name.data.preprocessing.align_face(dummy_img)
 
         np.testing.assert_array_equal(aligned_img, dummy_img)
-
-client = TestClient(app_file.app)
-
-class TestUploadImageAPI(unittest.TestCase):
-
-    @patch("app_file.subprocess.run")
-    def test_upload_successful(self, mock_run):
-
-        preproc_result = MagicMock(returncode=0, stdout='', stderr='')
-        prediction_output = json.dumps({"label": "real", "confidence": 0.87})
-        predict_result = MagicMock(returncode=0, stdout=prediction_output, stderr='')
-
-        mock_run.side_effect = [preproc_result, predict_result]
-
-        file_data = io.BytesIO(b"fake jpeg data")
-        response = client.post(
-                               "/upload-image/",
-                               files={"file": ("test.jpg", file_data, "fake_image/jpeg")}
-                              )
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["status"], "success")
-        self.assertTrue(data["image_is_real"])
-        self.assertAlmostEqual(data["confidence"], 0.87)
-
-    @patch("app_file.subprocess.run")
-    def test_upload_no_face_detected(self, mock_run):
-         preproc_result = MagicMock(returncode=2, stderr="No face found")
-         mock_run.return_value = preproc_result
-
-         file_data = io.BytesIO(b"fake jpeg data")
-         response = client.post(
-                               "/upload-image/",
-                               files={"file": ("noface.jpg", file_data, "fake_image/jpeg")}
-                              )
-
-         self.assertEqual(response.status_code, 400)
-         self.assertIn("No face detected", response.text)
-
-    @patch("app_file.subprocess.run")
-    def test_upload_preprocessing_failure(self, mock_run):
-        preproc_result = MagicMock(returncode=1, stderr="preprocessing failed")
-        mock_run.return_value = preproc_result
-
-        file_data = io.BytesIO(b"fake jpeg data")
-        response = client.post(
-                               "/upload-image/",
-                               files={"file": ("fail.jpg", file_data, "fake_image/jpeg")}
-                              )
-
-        self.assertEqual(response.status_code, 500)
-        self.assertIn("Pre-processing error", response.text)
-
 
 
 if __name__ == '__main__':

@@ -63,40 +63,27 @@ else
   GPU=false; CUDA_TAG=cpu
 fi
 
-
-# 3. Create environment: deca_env
+# 3. Environment: DECA
 if ! conda_env_exists "${DECA_ENV}"; then
   echo ">>> [1/3] Creating ${DECA_ENV} (Python 3.8)…"
   "${CONDA_BIN}" create -y -n "${DECA_ENV}" python=3.8 pip
 
   TORCH_VER=2.1.0
   P3D_VER=0.7.8
-  echo ">>> Installing PyTorch ${TORCH_VER} & PyTorch3D ${P3D_VER} (${CUDA_TAG})…"
-  if $GPU; then
-    conda_run "${DECA_ENV}" pip install \
-      torch==${TORCH_VER}+${CUDA_TAG} torchvision==0.16.0+${CUDA_TAG} torchaudio==${TORCH_VER}+${CUDA_TAG} \
-      --index-url https://download.pytorch.org/whl/${CUDA_TAG}
-    conda_run "${DECA_ENV}" pip install \
-      pytorch3d==${P3D_VER}+pt${TORCH_VER}${CUDA_TAG} \
-      --extra-index-url https://miropsota.github.io/torch_packages_builder
-  else
-    conda_run "${DECA_ENV}" pip install \
-      torch==${TORCH_VER}+cpu torchvision==0.16.0+cpu torchaudio==${TORCH_VER}+cpu \
-      --index-url https://download.pytorch.org/whl/cpu
-    conda_run "${DECA_ENV}" pip install \
-      pytorch3d==${P3D_VER}+pt${TORCH_VER}cpu \
-      --extra-index-url https://miropsota.github.io/torch_packages_builder
-  fi
+  echo ">>> Installing PyTorch ${TORCH_VER} & PyTorch3D ${P3D_VER} (CPU-only)…"
+  conda_run "${DECA_ENV}" pip install \
+    torch==${TORCH_VER}+cpu torchvision==0.16.0+cpu torchaudio==${TORCH_VER}+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
+  conda_run "${DECA_ENV}" pip install \
+    pytorch3d==${P3D_VER}+pt${TORCH_VER}cpu \
+    --extra-index-url https://miropsota.github.io/torch_packages_builder
 
   echo ">>> Installing DECA runtime dependencies…"
   conda_run "${DECA_ENV}" pip install -q \
     numpy==1.23 scipy "scikit-image>=0.15" opencv-python \
     PyYAML==5.1.1 face-alignment==1.3.4 yacs==0.1.8 \
     ninja fvcore chumpy kornia tqdm
-else
-  echo ">>> ${DECA_ENV} already exists – skipping creation."
 fi
-
 
 # 4. Create environment: preproc_env
 if ! conda_env_exists preproc_env; then

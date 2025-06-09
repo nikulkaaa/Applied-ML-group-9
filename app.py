@@ -267,6 +267,7 @@ async def upload_image_full(file: UploadFile = File(...)):
                 "--saveDepth", "True",
                 "--useTex", "True",
                 "--rasterizer_type", "pytorch3d",
+                "--device", "cpu",
                 "-s", str(deca_output_dir)
             ],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True

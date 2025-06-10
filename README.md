@@ -106,7 +106,6 @@ If you'd like to train the models on your own or just explore the data used in t
 ```bash
 python project_name/data/populate_repo.py
 ```
-The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
 
 ## Overview of Training
 ### Baseline
@@ -116,10 +115,10 @@ The original full dataset can be found at https://www.kaggle.com/datasets/manjil
     ```
 - This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
 - The average performance over all folds when we ran testing restulted in the following metrics:
-    Mean Accuracy: 0.868
-    Mean F1 Score: 0.861
-    Mean ROC-AUC: 0.968
-    Mean Error: 0.0861
+    - Mean Accuracy: 0.868
+    - Mean F1 Score: 0.861
+    - Mean ROC-AUC: 0.968
+    - Mean Error: 0.0861
 
 ### Full Model
 - The full model can be retrained by running:
@@ -128,10 +127,10 @@ The original full dataset can be found at https://www.kaggle.com/datasets/manjil
     ```
 - This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
 - The average performance over all folds when we ran testing restulted in the following metrics:
-    Mean Accuracy: 0.951
-    Mean F1 Score: 0.951
-    Mean ROC-AUC: 0.987
-    Mean Error: 0.0424
+    - Mean Accuracy: 0.951
+    - Mean F1 Score: 0.951
+    - Mean ROC-AUC: 0.987
+    - Mean Error: 0.0424
     
 
 ## Justifications and Design Choices

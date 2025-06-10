@@ -4,10 +4,10 @@
 
 ## Prerequisites
 Before you begin, ensure you have the following:
-    - A Bash-compatible shell on Windows (Git Bash, MSYS2, WSL) or a standard terminal on macOS/Linux.
-    - One of wget or curl installed and available in your PATH.
-    - Miniconda3
-    - Make sure to repopulate the repository 
+  - A Bash-compatible shell on Windows (Git Bash, MSYS2, WSL) or a standard terminal on macOS/Linux.
+  - One of wget or curl installed and available in your PATH.
+  - Miniconda3
+  - Make sure to repopulate the repository 
 
 TODO: 
 - WE NEED TO COVER THE POPULATE THE REPOSITORY AND WHAT REQUIREMENTS THEY HAVE TO USE IN THE INSTALLATION GUIDE

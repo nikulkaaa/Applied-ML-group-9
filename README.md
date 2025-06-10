@@ -22,7 +22,7 @@ TODO:
 - UPDATE ACKNOWLEDGEMENTS TO REFLECT EVERYTHING WE HAVE TAKEN (DATASETS, MODELS, ETC... ANY REFERENCES?)
             I wrote abt Dataset but apart from that i dont think theresnt anything we need to reference?
 
-### Installation with Docker (multi-platform and most recommended)
+## Installation with Docker (multi-platform and most recommended)
 
 1. Clone the repository  
    git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
@@ -69,7 +69,7 @@ This script will:
 - Enable you to stop the running containerseither by pressing 'Ctrl+C' in the terminal or running 'docker compose down'.  
 - Allow restarting the services without rebuilding the images to save time by running 'docker compose up'.  
 
-### Installation with Shell Script (only tested on Windows; may be unreliable)
+## Installation with Shell Script (only tested on Windows; may be unreliable)
 
 1. Clone the repository  
     ```bash    
@@ -100,7 +100,7 @@ The script will:
    - Start the Streamlit UI accessible at http://localhost:8501  
    - Manage startup and shutdown of these services for the user
 
-### Populating the repository 
+## Populating the repository 
 If you'd like to train the models on your own or just explore the data used in this project, you can populate the repository by running the following command:
 
 ```bash
@@ -108,8 +108,8 @@ python project_name/data/populate_repo.py
 ```
 The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
 
-### Overview of Training
-# Baseline
+## Overview of Training
+### Baseline
 - The baseline model can be retrained by running:
     ```bash
     python project_name/models/baseline_cnn.py
@@ -121,7 +121,7 @@ The original full dataset can be found at https://www.kaggle.com/datasets/manjil
     Mean ROC-AUC: 0.968
     Mean Error: 0.0861
 
-# Full Model
+### Full Model
 - The full model can be retrained by running:
     ```bash
     python project_name/models/twp_stream_model.py
@@ -134,7 +134,7 @@ The original full dataset can be found at https://www.kaggle.com/datasets/manjil
     Mean Error: 0.0424
     
 
-### Justifications and Design Choices
+## Justifications and Design Choices
 - Even though DECA was GPU compatible we chose to only allow running it on the CPU. This was because of lots of dependency and compatibility issues that we ran into,
   espeicailly when running on different hardware that utilized different GPUs. Therefore, the CPU-only route was chosen to focus on user-friendly interaction and
   setup with our deepfake detection model. As a note, all of the 3D reconstructed data used for training was performed on a GPU, however, since we only reconstruct
@@ -148,12 +148,12 @@ The original full dataset can be found at https://www.kaggle.com/datasets/manjil
 - DECA ?
 
 
-### Acknowledgements
-# The DECA model
+## Acknowledgements
+### The DECA model
 The DECA model was taken from: https://github.com/yfeng95/DECA \
 All credits go to the creators Feng, Yao and Feng, Haiwen and Black, Michael J. and Bolkart, Timo. We did edit the code slightly to ensure a smoother process
 when running it with our specific design for deepfake detection. This included making it CPU-only for maximum user-friendly and saving only explicitly what we needed.
 
-# The dataset
+### The dataset
 The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
 The dataset is not our own, and is publicly available at the link above. It contains around 190 000 samples, of which we are using roughly 16 000. The dataset comes split into real and fake images. The dataset is already pre-split into Train/Val/Test, but in order to do k-fold cross validation, we sourced all of our samples from the Training set.

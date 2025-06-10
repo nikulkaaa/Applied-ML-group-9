@@ -12,10 +12,15 @@ Before you begin, ensure you have the following:
 TODO: 
 - WE NEED TO COVER THE POPULATE THE REPOSITORY AND WHAT REQUIREMENTS THEY HAVE TO USE IN THE INSTALLATION GUIDE
 - WE NEED TO COVER HOW WE TRAINED THE MODEL AND PUT THE METRICS IN BELOW AND SHOW THE DIFFERENCES, MAKE SURE THE USER IS ABLE TO TRAIN FROM SCRATCH AND UNDERSTANDS IT
+            I put a little something down but i dont think the readme is nexessarily the place for all the details? 
+
 - ALSO ADD JUSTFICATIONS FOR MODEL DESIGN CHOICES (SALIENCY MAPS, DECA, ETC...)
+            Saliency maps done i think, deca needs to be added
+
 - MAKE SURE WE COVER AND TEST EVERY STEP (ON ALL PLATFORMS)
 - DEMONSTRATE HYPERPARAM TUNING TOO (AND MAKE SURE IT IS NOT BROKEN)
 - UPDATE ACKNOWLEDGEMENTS TO REFLECT EVERYTHING WE HAVE TAKEN (DATASETS, MODELS, ETC... ANY REFERENCES?)
+            I wrote abt Dataset but apart from that i dont think theresnt anything we need to reference?
 
 ### Installation with Docker (multi-platform and most recommended)
 
@@ -104,7 +109,30 @@ python project_name/data/populate_repo.py
 The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
 
 ### Overview of Training
+# Baseline
+- The baseline model can be retrained by running:
+    ```bash
+    python project_name/models/baseline_cnn.py
+    ```
+- This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
+- The average performance over all folds when we ran testing restulted in the following metrics:
+    Mean Accuracy: 0.868
+    Mean F1 Score: 0.861
+    Mean ROC-AUC: 0.968
+    Mean Error: 0.0861
 
+# Full Model
+- The full model can be retrained by running:
+    ```bash
+    python project_name/models/twp_stream_model.py
+    ```
+- This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
+- The average performance over all folds when we ran testing restulted in the following metrics:
+    Mean Accuracy: 0.951
+    Mean F1 Score: 0.951
+    Mean ROC-AUC: 0.987
+    Mean Error: 0.0424
+    
 
 ### Justifications and Design Choices
 - Even though DECA was GPU compatible we chose to only allow running it on the CPU. This was because of lots of dependency and compatibility issues that we ran into,
@@ -113,9 +141,19 @@ The original full dataset can be found at https://www.kaggle.com/datasets/manjil
   one image per upload by the user for detection, running on a CPU provides an adaquate amount of waiting time. Furthermore, we justified this by providing the baseline
   model to the user, so that if they want a quick but less reliable prediction, they can use the fast performing model to get results fast.  
 
+- We chose to implement Grad-CAM saliency maps in order to add an explainable layer to the project.
+  We wanted to make sure that neither one of the models (especially the full model) used noise in the images for its decision.
+  With the saliency maps, we detected that the full model was only using the background of the images to classify them, and so we chose to remove the baground from all images in preprocessing such that the models could not rely on the background any longer, which both removed that problem and improved the performance of our model, showing how useful the saliency maps were to designing our model.
+
+- DECA ?
+
 
 ### Acknowledgements
 # The DECA model
 The DECA model was taken from: https://github.com/yfeng95/DECA \
 All credits go to the creators Feng, Yao and Feng, Haiwen and Black, Michael J. and Bolkart, Timo. We did edit the code slightly to ensure a smoother process
 when running it with our specific design for deepfake detection. This included making it CPU-only for maximum user-friendly and saving only explicitly what we needed.
+
+# The dataset
+The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
+The dataset is not our own, and is publicly available at the link above. It contains around 190 000 samples, of which we are using roughly 16 000. The dataset comes split into real and fake images. The dataset is already pre-split into Train/Val/Test, but in order to do k-fold cross validation, we sourced all of our samples from the Training set.

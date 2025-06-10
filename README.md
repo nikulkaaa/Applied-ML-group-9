@@ -14,31 +14,32 @@ TODO:
 
 ## Installation with Docker (multi-platform and most recommended)
 
-1. Clone the repository  
+1. Open a Git Bash terminal and clone the repository
+   ```bash     
    git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
-
+   ```
 2. Download and install Docker Desktop, make sure to install the one compatible with your system:  
    https://www.docker.com/products/docker-desktop/
 
 3. Open Docker Desktop and make sure that it is running in the background before following any of the next instructions.
 
-4. Open a terminal and navigate to the root directory that was just cloned:
+3. Open a terminal and navigate to the root directory that was just cloned
    ```bash   
    cd Applied-ML-group-9
    ```
-
-5. Make a temporary virtual environment using requirements.txt, this will be used for populating the repository with the necessary files and folders to run our model. 
+   
+4. Make a temporary virtual environment using requirements.txt, this will be used for populating the repository with the necessary files and folders to run our model. 
    Make the environment named .populate_env that will contain the requirements
    ```bash
-   python3 -m venv .populate_env
+   python -m venv .populate_env
    ```
    
-   Activate the environ
+   Activate the environment
    ```bash
    # For Linux/macOS:
    source .env/bin/activate
 
-   # For Windows (using Git Bash or similar):
+   # For Windows (using Git Bash):
    source .populate_env/Scripts/activate
    ```
    
@@ -47,7 +48,7 @@ TODO:
    pip install -r requirements.txt
    ```
 
-6. Populate the repository with the DECA folder as it is crutial for 3D reconstruction (use the environment you just made)
+7. Populate the repository with the DECA folder as it is crutial for 3D reconstruction (use the environment you just made)
    ```bash
    python project_name/data/populate_repo.py
    ```
@@ -60,14 +61,15 @@ TODO:
    ```bash   
    rm -rf .populate_env
    ```
-7. After populating the folders successfully, navigate to the docker folder:  
+8. After populating the folders successfully, navigate to the docker folder:  
    ```bash   
    cd Applied-ML-group-9/docker
    ```
-8. Build the Docker images and start the services:  
+9. Build the Docker images and start the services:  
+   ```bash   
    docker compose up --build
-
-. Wait for the build to complete and containers to start. Once running, you can access:  
+   ```
+   Wait for the build to complete and containers to start. Once running, you can access:  
    - FastAPI backend docs at: http://localhost:8000/docs  
    - Streamlit UI at: http://localhost:8501
 
@@ -100,14 +102,14 @@ This script will:
 
 ## Installation with Shell Script (only tested on Windows; may be unreliable)
 
-1. Clone the repository  
+1. Open a Git Bash terminal and clone the repository: 
     ```bash    
    git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
     ```
 2. Download and install Miniconda if it is not already installed.  
    https://docs.conda.io/en/latest/miniconda.html
 
-3. Open a terminal and navigate into the project root folder:
+3. Navigate into the project root folder:
     ```bash      
    cd Applied-ML-group-9
     ```
@@ -118,7 +120,7 @@ This script will:
    python3 -m venv .populate_env
    ```
    
-   Activate the environ
+   Activate the environment
    ```bash
    # For Linux/macOS:
    source .env/bin/activate

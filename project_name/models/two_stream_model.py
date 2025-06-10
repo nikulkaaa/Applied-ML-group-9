@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from grad_cam_saliency import compute_gradcam, show_gradcam_on_image
 import pickle
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 
 warnings.filterwarnings("ignore")
 
@@ -87,21 +87,46 @@ class DeepFake3DFullDataset(Dataset):
         self.transform = transform
         self.cache_dir = Path(cache_dir) if cache_dir else None
 
-        idx_file = (self.cache_dir or Path(".")) / "dataset_index.pkl"
+class DeepFake3DFullDataset(Dataset):
+    exts = (".png", ".jpg", ".jpeg")
 
-        def _load_cached() -> list | None:
-            if not idx_file.exists():
-                return None
+class DeepFake3DFullDataset(Dataset):
+    exts = (".png", ".jpg", ".jpeg")
+
+    def __init__(
+        self,
+        preproc_root: Path | str,
+        recon_root: Path | str,
+        transform: Callable | None   = None,
+        cache_dir: Path | str | None = None,
+        indices: List[int] | None    = None,
+    ) -> None:
+        super().__init__()
+        self.preproc_root = Path(preproc_root)
+        self.recon_root = Path(recon_root)
+        self.transform = transform
+        self.cache_dir = Path(cache_dir) if cache_dir else None
+
+        idx_file = (self.cache_dir or Path(".")) / "dataset_index.pkl"
+        cached_samples: list[dict] | None = None
+
+        if idx_file.exists():
             try:
                 with idx_file.open("rb") as f:
-                    data = pickle.load(f)
-                return data if isinstance(data, list) and len(data) else None
-            except (EOFError, pickle.UnpicklingError):
-                return None
+                    temp = pickle.load(f)
+                # verify every referenced file still exists
+                for sample in temp:
+                    if any(not Path(sample[k]).exists() for k in ("orig","rend","depth","norm")):
+                        raise FileNotFoundError
+                cached_samples = temp
+            except Exception:
+                idx_file.unlink()
+                print("Stale or corrupted index detected; deleting dataset_index.pkl to re-index.")
 
-        self.samples = _load_cached()
-        if self.samples is None:
-            self.samples = []
+        if cached_samples is not None:
+            samples = cached_samples
+        else:
+            samples = []
             for cls_idx, cls_name in enumerate(["fake", "real"]):
                 p_dir = self.preproc_root / cls_name
                 d_dir = self.recon_root / "Depth" / cls_name
@@ -111,24 +136,30 @@ class DeepFake3DFullDataset(Dataset):
                 for img_path in itertools.chain.from_iterable(
                         p_dir.rglob(f"*{e}") for e in self.exts):
                     stem = img_path.stem
-                    d = self._find_by_prefix(d_dir, f"depth_{stem}")
-                    n = self._find_by_prefix(n_dir, f"normals_{stem}")
+                    d = self._find_by_prefix(d_dir,     f"depth_{stem}")
+                    n = self._find_by_prefix(n_dir,     f"normals_{stem}")
                     r = self._find_by_prefix(r_dir, f"orig_rendered_{stem}")
                     if None in (d, n, r):
                         continue
-                    self.samples.append(dict(orig=img_path,
-                                             rend=r, depth=d, norm=n,
-                                             label=cls_idx))
+                    samples.append(dict(
+                        orig=img_path,
+                        rend=r,
+                        depth=d,
+                        norm=n,
+                        label=cls_idx
+                    ))
+            print(f"Indexed {len(samples):,} samples")
 
-            print(f"Indexed {len(self.samples):,} samples")
-
-            if idx_file.parent:
-                idx_file.parent.mkdir(parents=True, exist_ok=True)
+            # save fresh index
+            idx_file.parent.mkdir(parents=True, exist_ok=True)
             with idx_file.open("wb") as f:
-                pickle.dump(self.samples, f)
+                pickle.dump(samples, f)
 
         if indices is not None:
-            self.samples = [self.samples[i] for i in indices]
+            samples = [samples[i] for i in indices]
+
+        self.samples = samples
+
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -220,11 +251,15 @@ def build_kfold_loaders(
     batch_size: int = 32,
     seed: int = 42,
     cache_dir: str | Path | None = None,
-    num_workers: int | None = None):
-    num_workers = num_workers or min(8, os.cpu_count())
+    num_workers: int | None = None,
+    indices: list[int] | None = None):
+    num_workers = num_workers or min(2, os.cpu_count())
 
-    full_ds = DeepFake3DFullDataset(preproc_root, recon_root,
-                                    transform=None, cache_dir=cache_dir)
+    # Initialize dataset with optional subsetting
+    full_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root,
+        transform=None, cache_dir=cache_dir,
+        indices=indices)
     if len(full_ds) == 0:
         raise RuntimeError(
             f"No samples were indexed under:\n"
@@ -232,9 +267,9 @@ def build_kfold_loaders(
             "Check paths / file naming conventions.")
 
     labels = np.array([s["label"] for s in full_ds.samples])
-    skf    = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-    loaders = []
+    loaders: list[tuple[DataLoader, DataLoader]] = []
     for tr_idx, vl_idx in skf.split(np.zeros(len(labels)), labels):
         tr_ds = torch.utils.data.Subset(full_ds, tr_idx.tolist())
         vl_ds = torch.utils.data.Subset(full_ds, vl_idx.tolist())
@@ -244,11 +279,12 @@ def build_kfold_loaders(
 
         loaders.append((
             DataLoader(tr_ds, batch_size=batch_size, shuffle=True,
-                       num_workers=2, pin_memory=True,
+                       num_workers=num_workers, pin_memory=True,
                        persistent_workers=True, prefetch_factor=2),
             DataLoader(vl_ds, batch_size=batch_size, shuffle=False,
-                       num_workers=2, pin_memory=True,
-                       persistent_workers=True, prefetch_factor=2)))
+                       num_workers=num_workers, pin_memory=True,
+                       persistent_workers=True, prefetch_factor=2)
+        ))
     return loaders
 
 # Model (classic fixed architecture)
@@ -413,13 +449,24 @@ def run_experiment(
     folds,
     seed,
     cache_dir=None,
-    save_dir="checkpoints"):
+    save_dir="checkpoints"):    
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 80/20 stratified split into train+val and held-out test
+    full_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root, transform=None, cache_dir=cache_dir)
+    labels = np.array([s["label"] for s in full_ds.samples])
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed)
+    train_val_idx, test_idx = next(sss.split(np.zeros(len(labels)), labels))
+
+    # K-fold on train+val
     fold_loaders = build_kfold_loaders(
         preproc_root, recon_root,
         n_splits=folds, batch_size=batch,
-        seed=seed, cache_dir=cache_dir)
+        seed=seed, cache_dir=cache_dir,
+        indices=train_val_idx.tolist())
+
     fold_metrics: list[dict[str, float]] = []
     for fold, (tr_loader, vl_loader) in enumerate(fold_loaders, 1):
         model = TwoStreamDetector(errors_only=False)
@@ -428,13 +475,53 @@ def run_experiment(
         fold_dir = Path(save_dir) / f"fold_{fold}"
         trainer = Trainer(model, opt, sched, device, fold_dir)
         history = trainer.fit(tr_loader, vl_loader, epochs, patience)
+
         vl_p, vl_y, _ = trainer._iter(vl_loader, False)
         vl_pred = (vl_p > 0.5).astype(int)
         acc = accuracy_score(vl_y, vl_pred)
         auc = roc_auc_score(vl_y, vl_p)
         f1  = f1_score(vl_y, vl_pred)
         fold_metrics.append(dict(val_acc=acc, auc=auc, f1=f1))
+
     mean_auc = np.mean([m["auc"] for m in fold_metrics])
+
+    # Evaluate the best fold model on the held-out test set
+    num_workers = min(2, os.cpu_count())
+    test_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root,
+        transform=None, cache_dir=cache_dir,
+        indices=test_idx.tolist())
+    test_loader = DataLoader(
+        test_ds, batch_size=batch, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+        persistent_workers=True, prefetch_factor=2)
+
+    # Identify best fold by AUC
+    best_fold = int(np.argmax([m["auc"] for m in fold_metrics])) + 1
+    best_model_path = Path(save_dir) / f"fold_{best_fold}" / "best.pt"
+    try:
+        best_model = torch.jit.load(best_model_path).to(device)
+    except Exception:
+        best_model = TwoStreamDetector(errors_only=False).to(device)
+        best_model.load_state_dict(torch.load(best_model_path))
+    best_model.eval()
+
+    all_probs, all_labels = [], []
+    for rgb, _, err, y in test_loader:
+        rgb, err = rgb.to(device), err.to(device)
+        with torch.no_grad():
+            logits = best_model(rgb, err)
+            probs = F.softmax(logits, dim=1)[:, 1].cpu().numpy()
+        all_probs.append(probs)
+        all_labels.append(y.numpy())
+    all_probs = np.concatenate(all_probs)
+    all_labels = np.concatenate(all_labels)
+
+    test_acc = accuracy_score(all_labels, (all_probs > 0.5).astype(int))
+    test_auc = roc_auc_score(all_labels, all_probs)
+    test_f1  = f1_score(all_labels, (all_probs > 0.5).astype(int))
+    print(f"Held-out test set: ACC={test_acc:.4f} AUC={test_auc:.4f} F1={test_f1:.4f}")
+
     return mean_auc
 
 
@@ -511,14 +598,38 @@ def full_run_with_results(
     folds,
     seed,
     cache_dir=None,
-    save_dir="checkpoints"):
+    save_dir="checkpoints"):    
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 80/20 stratified split
+    full_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root, transform=None, cache_dir=cache_dir)
+    labels = np.array([s["label"] for s in full_ds.samples])
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed)
+    train_val_idx, test_idx = next(sss.split(np.zeros(len(labels)), labels))
+
+    # Held-out test loader
+    num_workers = min(2, os.cpu_count())
+    test_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root,
+        transform=None, cache_dir=cache_dir,
+        indices=test_idx.tolist())
+    test_loader = DataLoader(
+        test_ds, batch_size=batch, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+        persistent_workers=True, prefetch_factor=2)
+
+    # K-fold on train+val
     fold_loaders = build_kfold_loaders(
         preproc_root, recon_root,
         n_splits=folds, batch_size=batch,
-        seed=seed, cache_dir=cache_dir)
+        seed=seed, cache_dir=cache_dir,
+        indices=train_val_idx.tolist())
+
     fold_metrics: list[dict[str, float]] = []
+    train_accs, val_accs = [], []
+
     for fold, (tr_loader, vl_loader) in enumerate(fold_loaders, 1):
         print(f"\n~~~~~~~ Fold {fold}/{folds} ~~~~~~~")
         model = TwoStreamDetector(errors_only=False)
@@ -527,23 +638,25 @@ def full_run_with_results(
         fold_dir = Path(save_dir) / f"fold_{fold}"
         trainer = Trainer(model, opt, sched, device, fold_dir)
         history = trainer.fit(tr_loader, vl_loader, epochs, patience)
+
+        # Loss plot
         epochs_list = list(range(1, len(history["train_loss"]) + 1))
-        # Loss plots
         plt.figure()
         plt.plot(epochs_list, history["train_loss"], label="train loss")
         plt.plot(epochs_list, history["val_loss"],   label="val loss")
-        plt.xlabel("epoch"); plt.ylabel("loss"); plt.legend()
-        plt.title(f"Fold {fold} Loss over Epochs")
+        plt.xlabel("epoch"); plt.ylabel("loss"); plt.title(f"Fold {fold} Loss over Epochs")
+        plt.legend(); plt.grid(True)
         plt.savefig(fold_dir / f"loss_vs_epoch.png"); plt.close()
-        # Acc plots
+
+        # Acc plot
         plt.figure()
         plt.plot(epochs_list, history["train_acc"], label="train acc")
         plt.plot(epochs_list, history["val_acc"],   label="val acc")
-        plt.xlabel("epoch"); plt.ylabel("accuracy"); plt.legend()
-        plt.title(f"Fold {fold} Accuracy over Epochs")
+        plt.xlabel("epoch"); plt.ylabel("accuracy"); plt.title(f"Fold {fold} Accuracy over Epochs")
+        plt.legend(); plt.grid(True)
         plt.savefig(fold_dir / f"acc_vs_epoch.png"); plt.close()
-        # Metrics
-        print("\n~ Validation results ~")
+
+        # Validation results
         vl_p, vl_y, _ = trainer._iter(vl_loader, False)
         vl_pred = (vl_p > 0.5).astype(int)
         acc = accuracy_score(vl_y, vl_pred)
@@ -551,13 +664,10 @@ def full_run_with_results(
         eer = compute_eer(vl_y, vl_p)
         f1  = f1_score(vl_y, vl_pred)
         print(f"ACC={acc:.4f}  AUC={auc:.4f}  EER={eer:.4f}  F1={f1:.4f}")
-        train_final_acc = history["train_acc"][-1]
-        fold_metrics.append(dict(
-            train_acc = train_final_acc,
-            val_acc = acc,
-            auc = auc,
-            eer = eer,
-            f1 = f1))
+        train_accs.append(history["train_acc"][-1])
+        val_accs.append(acc)
+        fold_metrics.append(dict(train_acc=history["train_acc"][-1], val_acc=acc, auc=auc, eer=eer, f1=f1))
+
         # Confusion matrix
         cm = confusion_matrix(vl_y, vl_pred)
         plt.figure()
@@ -567,7 +677,9 @@ def full_run_with_results(
         plt.xticks(ticks, classes); plt.yticks(ticks, classes)
         for i, j in itertools.product(range(2), range(2)):
             plt.text(j, i, cm[i, j], ha="center", va="center")
+        plt.grid(False)
         plt.savefig(fold_dir / f"val_confusion_matrix.png"); plt.close()
+
         # GradCAMs
         model.eval()
         gc_dir = fold_dir / "gradcam"; gc_dir.mkdir(exist_ok=True)
@@ -580,21 +692,19 @@ def full_run_with_results(
                 plt.axis("off")
                 if saved == 0:
                     plt.title(f"Fold {fold} GradCAM Example")
-                plt.savefig(gc_dir / f"val_gradcam_{saved+1}.png",
-                            bbox_inches="tight", pad_inches=0)
+                plt.savefig(gc_dir / f"val_gradcam_{saved+1}.png", bbox_inches="tight", pad_inches=0)
                 plt.close()
                 saved += 1
                 if saved == 5:
                     break
+
     # K-fold summary
     print("\n~~~~~~~ K-fold summary ~~~~~~~")
+    train_accs = np.array(train_accs); val_accs = np.array(val_accs)
     for k in ["val_acc", "auc", "eer", "f1"]:
         scores = [m[k] for m in fold_metrics]
         print(f"{k.upper():7s}: {np.mean(scores):.4f} ± {np.std(scores):.4f}")
-    train_accs = np.array([m["train_acc"] for m in fold_metrics])
-    val_accs   = np.array([m["val_acc"]  for m in fold_metrics])
-    std_val = val_accs.std()
-    gap     = train_accs.mean() - val_accs.mean()
+    std_val = val_accs.std(); gap = train_accs.mean() - val_accs.mean()
     print("\n~~~~~~~ Over-fitting check ~~~~~~~")
     print(f"Train-val acc gap : {gap:.3f}")
     print(f"Val-acc  std-dev  : {std_val:.3f}")
@@ -602,33 +712,93 @@ def full_run_with_results(
         print("Model is likely overfitting.")
     else:
         print("No strong signs of overfitting.")
+
+    # Held-out Test Set Evaluation
+    print("\n~~~~~~~ Held-out Test Set Evaluation ~~~~~~~")
+    best_fold = int(np.argmax([m["auc"] for m in fold_metrics])) + 1
+    best_model_path = Path(save_dir) / f"fold_{best_fold}" / "best.pt"
+    try:
+        test_model = torch.jit.load(best_model_path).to(device)
+    except Exception:
+        test_model = TwoStreamDetector(errors_only=False).to(device)
+        test_model.load_state_dict(torch.load(best_model_path))
+    test_model.eval()
+
+    all_probs, all_labels = [], []
+    for rgb, _, err, y in test_loader:
+        rgb, err = rgb.to(device), err.to(device)
+        with torch.no_grad():
+            logits = test_model(rgb, err)
+            probs = F.softmax(logits, dim=1)[:, 1].cpu().numpy()
+        all_probs.append(probs); all_labels.append(y.numpy())
+    all_probs = np.concatenate(all_probs); all_labels = np.concatenate(all_labels)
+
+    test_acc = accuracy_score(all_labels, (all_probs > 0.5).astype(int))
+    test_auc = roc_auc_score(all_labels, all_probs)
+    test_eer = compute_eer(all_labels, all_probs)
+    test_f1  = f1_score(all_labels, (all_probs > 0.5).astype(int))
+    print(f"TEST: ACC={test_acc:.4f}  AUC={test_auc:.4f}  EER={test_eer:.4f}  F1={test_f1:.4f}")
+
+    # Test confusion matrix
+    cm = confusion_matrix(all_labels, (all_probs > 0.5).astype(int))
+    plt.figure()
+    plt.imshow(cm, interpolation="nearest")
+    plt.title("Held-out Test Confusion Matrix"); plt.colorbar()
+    plt.xticks(ticks, classes); plt.yticks(ticks, classes)
+    for i, j in itertools.product(range(2), range(2)):
+        plt.text(j, i, cm[i, j], ha="center", va="center")
+    plt.grid(False)
+    plt.savefig(Path(save_dir) / "test_confusion_matrix.png"); plt.close()
+
+    # Overfitting on test
+    test_gap = val_accs.mean() - test_acc
+    print(f"Val-test acc gap : {test_gap:.3f}")
+    if test_gap > 0.10:
+        print("Model likely overfitting on test.")
+    else:
+        print("No strong signs of overfitting on test.")
+
     return fold_metrics
+
 
 
 def load_best_optuna_params_if_available(args):
     """
     If optuna_best_trial.json exists in save_dir and the user did not override
-    relevant params, load best params from the file. Otherwise, use CLI args.
-    (Only classic hparams! No arch tuning.)
+    relevant params via CLI, load best params from the file. Otherwise, use CLI args.
     """
+    import sys
     best_json = os.path.join(args.save_dir, "optuna_best_trial.json")
-    if os.path.exists(best_json):
-        with open(best_json) as f:
-            best = json.load(f).get("best_params", {})
-        dummy = argparse.Namespace(
-            epochs=2,
-            batch=32,
-            lr=1e-3,
-            weight_decay=1e-4,
-            patience=3
-        )
-        # We only will override if the user left the args values at its default
-        for key in ("epochs", "batch", "lr", "weight_decay", "patience"):
-            if key in best and getattr(args, key) == getattr(dummy, key):
-                setattr(args, key, best[key])
+    if not os.path.exists(best_json):
+        return args
+
+    with open(best_json) as f:
+        best = json.load(f).get("best_params", {})
+
+    # map our arg names to their CLI flags
+    flag_map = {
+        "epochs":      "--epochs",
+        "batch":       "--batch",
+        "lr":          "--lr",
+        "weight_decay":"--weight-decay",
+        "patience":    "--patience",
+    }
+
+    # only override if user did NOT pass the corresponding flag
+    overridden = []
+    for key, flag in flag_map.items():
+        if flag in sys.argv:
+            continue
+        if key in best:
+            setattr(args, key, best[key])
+            overridden.append(f"{key}={best[key]}")
+
+    if overridden:
         print(f"\n[INFO] Loaded best Optuna trial from: {best_json}")
-        print(f"[INFO] Overriding CLI args (if not passed explicitly) with: {best}")
+        print(f"[INFO] Overriding CLI args with: {', '.join(overridden)}")
+
     return args
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -643,8 +813,8 @@ def main():
         required=True,
         help="Path to 3DRecon data root")
     parser.add_argument(
-        "--epochs", type=int, default=2,
-        help="Number of training epochs (default: 2)")
+        "--epochs", type=int, default=10,
+        help="Number of training epochs (default: 10)")
     parser.add_argument(
         "--batch", type=int, default=32,
         help="Batch size (default: 32)")
@@ -677,6 +847,9 @@ def main():
 
     # Parse arguments:
     args = parser.parse_args()
+
+    if args.folds < 2:
+        parser.error(f"--folds must be at least 2 (got {args.folds})")
 
     # If --tune is set then we run the hyperparameter tuning
     if args.tune:

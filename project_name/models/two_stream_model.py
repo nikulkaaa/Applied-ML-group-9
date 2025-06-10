@@ -80,25 +80,6 @@ class DeepFake3DFullDataset(Dataset):
         recon_root: Path | str,
         transform: Callable | None   = None,
         cache_dir: Path | str | None = None,
-        indices: List[int] | None  = None) -> None:
-        super().__init__()
-        self.preproc_root = Path(preproc_root)
-        self.recon_root = Path(recon_root)
-        self.transform = transform
-        self.cache_dir = Path(cache_dir) if cache_dir else None
-
-class DeepFake3DFullDataset(Dataset):
-    exts = (".png", ".jpg", ".jpeg")
-
-class DeepFake3DFullDataset(Dataset):
-    exts = (".png", ".jpg", ".jpeg")
-
-    def __init__(
-        self,
-        preproc_root: Path | str,
-        recon_root: Path | str,
-        transform: Callable | None   = None,
-        cache_dir: Path | str | None = None,
         indices: List[int] | None    = None,
     ) -> None:
         super().__init__()

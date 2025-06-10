@@ -11,8 +11,6 @@ data/test_background
 data/preprocessed_full_dataset
 threestudio/
 prediction_venv
-DECA/data/FLAME_albedo_from_BFM.npz
-DECA/data/deca_model.tar
-DECA/data/generic_model.pkl
-DECA.zip
+DECA/
+data/preprocessed_no_background
 

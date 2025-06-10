@@ -56,13 +56,6 @@ echo ">>> Using conda at: ${CONDA_BIN}"
 conda_env_exists() { "${CONDA_BIN}" env list | awk '{print $1}' | grep -Fxq "$1"; }
 conda_run()       { local env="$1"; shift; "${CONDA_BIN}" run -n "${env}" --no-capture-output "$@"; }
 
-# One-time GPU check
-if command -v nvidia-smi &>/dev/null; then
-  GPU=true;  CUDA_TAG=cu121
-else
-  GPU=false; CUDA_TAG=cpu
-fi
-
 # 3. Environment: DECA
 if ! conda_env_exists "${DECA_ENV}"; then
   echo ">>> [1/3] Creating ${DECA_ENV} (Python 3.8)…"
@@ -83,6 +76,8 @@ if ! conda_env_exists "${DECA_ENV}"; then
     numpy==1.23 scipy "scikit-image>=0.15" opencv-python \
     PyYAML==5.1.1 face-alignment==1.3.4 yacs==0.1.8 \
     ninja fvcore chumpy kornia tqdm
+else
+  echo ">>> deca_env already exists - skipping creation."
 fi
 
 # 4. Create environment: preproc_env
@@ -99,7 +94,7 @@ if ! conda_env_exists preproc_env; then
   echo ">>> Installing preprocessing requirements…"
   conda_run preproc_env pip install -r requirements_preproc.txt
 else
-  echo ">>> preproc_env already exists – skipping creation."
+  echo ">>> preproc_env already exists - skipping creation."
 fi
 
 
@@ -116,7 +111,7 @@ if ! conda_env_exists predict_env; then
   conda_run predict_env pip install -r requirements_predict.txt
   conda_run predict_env pip install fastapi uvicorn streamlit python-multipart requests pillow
 else
-  echo ">>> predict_env already exists – skipping creation."
+  echo ">>> predict_env already exists - skipping creation."
 fi
 
 

@@ -6,29 +6,94 @@
 Before you begin, ensure you have the following:
     - A Bash-compatible shell on Windows (Git Bash, MSYS2, WSL) or a standard terminal on macOS/Linux.
     - One of wget or curl installed and available in your PATH.
-    - Write permissions to install Miniconda into:
-    - Windows: C:\Users\<your_user>\miniconda3
-    - macOS/Linux: ~/miniconda3
+    - Miniconda3
+    - Make sure to repopulate the repository 
 
-### Installation
-1. Clone the repository
-    git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
+TODO: 
+- WE NEED TO COVER THE POPULATE THE REPOSITORY AND WHAT REQUIREMENTS THEY HAVE TO USE IN THE INSTALLATION GUIDE
+- WE NEED TO COVER HOW WE TRAINED THE MODEL AND PUT THE METRICS IN BELOW AND SHOW THE DIFFERENCES, MAKE SURE THE USER IS ABLE TO TRAIN FROM SCRATCH AND UNDERSTANDS IT
+- ALSO ADD JUSTFICATIONS FOR MODEL DESIGN CHOICES (SALIENCY MAPS, DECA, ETC...)
+- MAKE SURE WE COVER AND TEST EVERY STEP (ON ALL PLATFORMS)
+- DEMONSTRATE HYPERPARAM TUNING TOO (AND MAKE SURE IT IS NOT BROKEN)
+- UPDATE ACKNOWLEDGEMENTS TO REFLECT EVERYTHING WE HAVE TAKEN (DATASETS, MODELS, ETC... ANY REFERENCES?)
 
-2. Make the shell script executable
-    chmod +x run_pipeline.sh
+### Installation with Docker (multi-platform and most recommended)
 
-3. Run the setup script
-    ./run_pipeline.sh
+1. Clone the repository  
+   git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
+
+2. Download and install Docker Desktop, make sure to install the one compatible with your system:  
+   https://www.docker.com/products/docker-desktop/
+
+3. Open Docker Desktop and make sure that it is running in the background before following any of the next instructions.
+
+4. Open a terminal and navigate to the docker folder:  
+   cd Applied-ML-group-9/docker
+
+5. Build the Docker images and start the services:  
+   docker compose up --build
+
+6. Wait for the build to complete and containers to start. Once running, you can access:  
+   - FastAPI backend docs at: http://localhost:8000/docs  
+   - Streamlit UI at: http://localhost:8501
+
+7. To stop the containers, press Ctrl+C or, alternatively, run:  
+   docker compose down
+
+8. If you want to start up the web services again without rebuilding, please run:  
+   docker compose up
+
+9. (Optional) View logs for the services:  
+   docker compose logs -f api  
+   docker compose logs -f ui
 
 This script will:
-1. Detect your OS (Windows, macOS, or Linux) and download the matching Miniconda installer.
-2. Install Miniconda into ~/miniconda3 (or C:\Users\<your_user>\miniconda3).
-3. Create two Conda environments:
-        preproc_env (Python 3.8) for data preprocessing, including dlib and other requirements.
-        predict_env (Python 3.10) with CPU-only PyTorch, FastAPI, Streamlit, and prediction dependencies.
 
-Once installation completes, the script will automatically start the FastAPI server in the background:
-URL: http://localhost:8000
+- Clone the project repository containing all source code, configurations, and dependencies.  
+- Guide you to install Docker Desktop, the platform that enables containerization on your operating system.  
+- Ensure Docker Desktop is running in the background before proceeding with further commands.  
+- Navigate into the 'docker' folder within the project, where the Dockerfile and Docker Compose configurations are located.  
+- Build Docker images that create isolated environments including:  
+  - A conda environment with Python 3.8 and necessary scientific libraries (NumPy, SciPy, OpenCV, etc.)  
+  - PyTorch (CPU-only version) and related libraries ('torchvision', 'torchaudio') installed via pip for compatibility and performance  
+  - Additional specialized packages like 'pytorch3d' for 3D deep learning
+  - Separate conda environments for preprocessing ('preproc_env') and prediction ('predict_env') with their respective dependencies including dlib, FastAPI, Streamlit, and other utilities  
+- Launch two services inside Docker containers:  
+  - A FastAPI backend server accessible at 'http://localhost:8000/docs' for API interactions and documentation  
+  - A Streamlit frontend UI accessible at 'http://localhost:8501' for interactive visualization and user interaction  
+- Enable you to stop the running containerseither by pressing 'Ctrl+C' in the terminal or running 'docker compose down'.  
+- Allow restarting the services without rebuilding the images to save time by running 'docker compose up'.  
+
+### Installation with Shell Script (only tested on Windows; may be unreliable)
+
+1. Clone the repository  
+    ```bash    
+   git clone https://github.com/nikulkaaa/Applied-ML-group-9.git
+    ```
+2. Download and install Miniconda if it is not already installed.  
+   https://docs.conda.io/en/latest/miniconda.html
+
+3. Open a terminal and navigate into the project root folder:
+    ```bash      
+   cd Applied-ML-group-9
+    ```
+4. (Unix/macOS only) Make the script executable:
+    ```bash    
+   chmod +x ./install_and_run_all.sh
+    ```
+5. Run the provided shell script to set up environments and launch the services:
+    ```bash  
+   ./install_and_run_all.sh
+    ```
+6. To stop the services, press Ctrl+C in the terminal.
+
+The script will:  
+   - Install Miniconda if missing  
+   - Create three conda environments: deca_env, preproc_env, and predict_env with Python 3.8 and 3.10 as needed  
+   - Install all necessary Python packages (PyTorch CPU versions, dlib, FastAPI, Streamlit, and others) in each environment  
+   - Start the FastAPI server accessible at http://localhost:8000  
+   - Start the Streamlit UI accessible at http://localhost:8501  
+   - Manage startup and shutdown of these services for the user
 
 ### Populating the repository 
 If you'd like to train the models on your own or just explore the data used in this project, you can populate the repository by running the following command:
@@ -38,5 +103,19 @@ python project_name/data/populate_repo.py
 ```
 The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
 
+### Overview of Training
+
+
+### Justifications and Design Choices
+- Even though DECA was GPU compatible we chose to only allow running it on the CPU. This was because of lots of dependency and compatibility issues that we ran into,
+  espeicailly when running on different hardware that utilized different GPUs. Therefore, the CPU-only route was chosen to focus on user-friendly interaction and
+  setup with our deepfake detection model. As a note, all of the 3D reconstructed data used for training was performed on a GPU, however, since we only reconstruct
+  one image per upload by the user for detection, running on a CPU provides an adaquate amount of waiting time. Furthermore, we justified this by providing the baseline
+  model to the user, so that if they want a quick but less reliable prediction, they can use the fast performing model to get results fast.  
+
+
+### Acknowledgements
+# The DECA model
 The DECA model was taken from: https://github.com/yfeng95/DECA \
-Furthermore, it was edited for our specific use case. 
+All credits go to the creators Feng, Yao and Feng, Haiwen and Black, Michael J. and Bolkart, Timo. We did edit the code slightly to ensure a smoother process
+when running it with our specific design for deepfake detection. This included making it CPU-only for maximum user-friendly and saving only explicitly what we needed.

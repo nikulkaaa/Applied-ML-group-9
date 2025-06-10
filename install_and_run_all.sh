@@ -86,17 +86,14 @@ if ! conda_env_exists preproc_env; then
   "${CONDA_BIN}" create -y -n preproc_env python=3.8 pip
 
   echo ">>> Installing dlib…"
-  case "$(uname -s)" in
-    Linux|Darwin) conda_run preproc_env pip install ./dlib-19.22.0.tar.gz ;;
-    *)            conda_run preproc_env pip install ./dlib-19.22.99-cp38-cp38-win_amd64.whl ;;
-  esac
+  conda config --set channel_priority strict --env
+  conda_run preproc_env conda install dlib=19.22.0 -y
 
   echo ">>> Installing preprocessing requirements…"
   conda_run preproc_env pip install -r requirements_preproc.txt
 else
   echo ">>> preproc_env already exists - skipping creation."
 fi
-
 
 # 5. Create environment: predict_env
 if ! conda_env_exists predict_env; then
@@ -117,13 +114,13 @@ fi
 
 # 6. Launch FastAPI + Streamlit
 echo ">>> Starting FastAPI on http://localhost:8000"
-conda_run predict_env uvicorn app:app --reload --port 8000 &
+conda_run predict_env python -m uvicorn app:app --reload --port 8000 &
 UVICORN_PID=$!
 
 sleep 2
 
 echo ">>> Starting Streamlit on http://localhost:8501 (Ctrl-C to quit)…"
-conda_run predict_env streamlit run app/streamlit_app.py
+conda_run predict_env python -m streamlit run app/streamlit_app.py
 
 echo ">>> Shutting down FastAPI (pid=${UVICORN_PID})"
 kill "${UVICORN_PID}"

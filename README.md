@@ -7,20 +7,10 @@ Before you begin, ensure you have the following:
   - A Bash-compatible shell on Windows (Git Bash, MSYS2, WSL) or a standard terminal on macOS/Linux.
   - One of wget or curl installed and available in your PATH.
   - Miniconda3
-  - Make sure to repopulate the repository 
+  - Make sure to repopulate the repository (this is described in detail below)
 
 TODO: 
-- WE NEED TO COVER THE POPULATE THE REPOSITORY AND WHAT REQUIREMENTS THEY HAVE TO USE IN THE INSTALLATION GUIDE
-- WE NEED TO COVER HOW WE TRAINED THE MODEL AND PUT THE METRICS IN BELOW AND SHOW THE DIFFERENCES, MAKE SURE THE USER IS ABLE TO TRAIN FROM SCRATCH AND UNDERSTANDS IT
-            I put a little something down but i dont think the readme is nexessarily the place for all the details? 
-
-- ALSO ADD JUSTFICATIONS FOR MODEL DESIGN CHOICES (SALIENCY MAPS, DECA, ETC...)
-            Saliency maps done i think, deca needs to be added
-
 - MAKE SURE WE COVER AND TEST EVERY STEP (ON ALL PLATFORMS)
-- DEMONSTRATE HYPERPARAM TUNING TOO (AND MAKE SURE IT IS NOT BROKEN)
-- UPDATE ACKNOWLEDGEMENTS TO REFLECT EVERYTHING WE HAVE TAKEN (DATASETS, MODELS, ETC... ANY REFERENCES?)
-            I wrote abt Dataset but apart from that i dont think theresnt anything we need to reference?
 
 ## Installation with Docker (multi-platform and most recommended)
 
@@ -32,23 +22,62 @@ TODO:
 
 3. Open Docker Desktop and make sure that it is running in the background before following any of the next instructions.
 
-4. Open a terminal and navigate to the docker folder:  
-   cd Applied-ML-group-9/docker
+4. Open a terminal and navigate to the root directory that was just cloned:
+   ```bash   
+   cd Applied-ML-group-9
+   ```
 
-5. Build the Docker images and start the services:  
+5. Make a temporary virtual environment using requirements.txt, this will be used for populating the repository with the necessary files and folders to run our model. 
+   Make the environment named .populate_env that will contain the requirements
+   ```bash
+   python3 -m venv .populate_env
+   ```
+   
+   Activate the environ
+   ```bash
+   # For Linux/macOS:
+   source .env/bin/activate
+
+   # For Windows (using Git Bash or similar):
+   source .populate_env/Scripts/activate
+   ```
+   
+   Install the requirements in your newly activated environment
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+6. Populate the repository with the DECA folder as it is crutial for 3D reconstruction (use the environment you just made)
+   ```bash
+   python project_name/data/populate_repo.py
+   ```
+
+   Thereafter, deactivate the environment like so:
+   ```bash   
+   deactivate
+   ```
+   Once completed, you may now remove the temporary virtual environment made in step four for population (optional)
+   ```bash   
+   rm -rf .populate_env
+   ```
+7. After populating the folders successfully, navigate to the docker folder:  
+   ```bash   
+   cd Applied-ML-group-9/docker
+   ```
+8. Build the Docker images and start the services:  
    docker compose up --build
 
-6. Wait for the build to complete and containers to start. Once running, you can access:  
+. Wait for the build to complete and containers to start. Once running, you can access:  
    - FastAPI backend docs at: http://localhost:8000/docs  
    - Streamlit UI at: http://localhost:8501
 
-7. To stop the containers, press Ctrl+C or, alternatively, run:  
+9. To stop the containers, press Ctrl+C or, alternatively, run:  
    docker compose down
 
-8. If you want to start up the web services again without rebuilding, please run:  
+10. If you want to start up the web services again without rebuilding, please run:  
    docker compose up
 
-9. (Optional) View logs for the services:  
+11. (Optional) View logs for the services:  
    docker compose logs -f api  
    docker compose logs -f ui
 
@@ -82,39 +111,68 @@ This script will:
     ```bash      
    cd Applied-ML-group-9
     ```
-4. (Unix/macOS only) Make the script executable:
+
+4. Make a temporary virtual environment using requirements.txt, this will be used for populating the repository with the necessary files and folders to run our model. 
+   Make the environment named .populate_env that will contain the requirements
+   ```bash
+   python3 -m venv .populate_env
+   ```
+   
+   Activate the environ
+   ```bash
+   # For Linux/macOS:
+   source .env/bin/activate
+
+   # For Windows (using Git Bash or similar):
+   source .populate_env/Scripts/activate
+   ```
+   
+   Install the requirements in your newly activated environment
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. Populate the repository with the DECA folder as it is crutial for 3D reconstruction (use the environment you just made)
+   ```bash
+   python project_name/data/populate_repo.py
+   ```
+
+   Thereafter, deactivate the environment like so:
+   ```bash   
+   deactivate
+   ```
+   Once completed, you may now remove the temporary virtual environment made in step four for population (optional)
+   ```bash   
+   rm -rf .populate_env
+   ```
+6. Make the following script executable:
     ```bash    
    chmod +x ./install_and_run_all.sh
     ```
-5. Run the provided shell script to set up environments and launch the services:
+7. Run the provided shell script to set up environments and launch the services:
     ```bash  
    ./install_and_run_all.sh
     ```
-6. To stop the services, press Ctrl+C in the terminal.
+   To stop the services, press Ctrl+C in the terminal.
 
 The script will:  
    - Install Miniconda if missing  
    - Create three conda environments: deca_env, preproc_env, and predict_env with Python 3.8 and 3.10 as needed  
    - Install all necessary Python packages (PyTorch CPU versions, dlib, FastAPI, Streamlit, and others) in each environment  
-   - Start the FastAPI server accessible at http://localhost:8000  
+   - Start the FastAPI server accessible at http://localhost:8000/docs 
    - Start the Streamlit UI accessible at http://localhost:8501  
    - Manage startup and shutdown of these services for the user
 
-## Populating the repository 
-If you'd like to train the models on your own or just explore the data used in this project, you can populate the repository by running the following command:
-
-```bash
-python project_name/data/populate_repo.py
-```
-
 ## Overview of Training
+The full model achieves higher performance than the baseline model. The full model makes use of 3D reconstruction of all the sample data, and uses it to compute error maps in comparison to the 2D image to make accurate predictions. The baseline model is only trained on the 2D images, and is weaker in detecting depth and angle discrepancies in the faces (which 3D reconstruction is strong for). If you would like to retrain the models, pleake make sure to have all the data by completing the populate step (guided in the installation guides), arguments to run or tune the models can be found detailed in the code. We have tuned hyperparameters avaliable to use for the full model, these were obtained with Optuna and provided the best results for us. 
+
 ### Baseline
 - The baseline model can be retrained by running:
     ```bash
     python project_name/models/baseline_cnn.py
     ```
 - This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
-- The average performance over all folds when we ran testing restulted in the following metrics:
+- The average performance over all five folds when we ran testing restulted in the following metrics:
     - Mean Accuracy: 0.868
     - Mean F1 Score: 0.861
     - Mean ROC-AUC: 0.968
@@ -126,7 +184,7 @@ python project_name/data/populate_repo.py
     python project_name/models/twp_stream_model.py
     ```
 - This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
-- The average performance over all folds when we ran testing restulted in the following metrics:
+- The average performance over all five folds when we ran testing restulted in the following metrics:
     - Mean Accuracy: 0.951
     - Mean F1 Score: 0.951
     - Mean ROC-AUC: 0.987
@@ -144,11 +202,11 @@ python project_name/data/populate_repo.py
   We wanted to make sure that neither one of the models (especially the full model) used noise in the images for its decision.
   With the saliency maps, we detected that the full model was only using the background of the images to classify them, and so we chose to remove the baground from all images in preprocessing such that the models could not rely on the background any longer, which both removed that problem and improved the performance of our model, showing how useful the saliency maps were to designing our model.
 
-- DECA ?
+- Detailed Expression Capture and Animation (DECA) was the best publicly available 3D reconstruction model that outperformed many other models. We chose it as we found that it would provide us the best results in order to compute the most precise error maps to detect deepfakes (as they can have minor disrepenacies). Furthermore, it had an easy setup process that was user-friendly and could be used on a majority of machines. 
 
 
 ## Acknowledgements
-### The DECA model
+### The Detailed Expression Capture and Animation (DECA) model
 The DECA model was taken from: https://github.com/yfeng95/DECA \
 All credits go to the creators Feng, Yao and Feng, Haiwen and Black, Michael J. and Bolkart, Timo. We did edit the code slightly to ensure a smoother process
 when running it with our specific design for deepfake detection. This included making it CPU-only for maximum user-friendly and saving only explicitly what we needed.
@@ -156,3 +214,13 @@ when running it with our specific design for deepfake detection. This included m
 ### The dataset
 The original full dataset can be found at https://www.kaggle.com/datasets/manjilkarki/deepfake-and-real-images?resource=download
 The dataset is not our own, and is publicly available at the link above. It contains around 190 000 samples, of which we are using roughly 16 000. The dataset comes split into real and fake images. The dataset is already pre-split into Train/Val/Test, but in order to do k-fold cross validation, we sourced all of our samples from the Training set.
+
+### Basel Face Model
+[Basel Face Model](https://faces.dmi.unibas.ch/bfm/bfm2017.html) (BFM) was used to take the meshes in BFM and convert them into a FLAME mesh. All credit for the provided models go to the authors Thomas Gerig, Andreas Morel-Forster, Clemens Blumer, Bernhard Egger, Marcel Lüthi, Sandro Schönborn and Thomas Vetter on the Morphable Face Models - An Open Framework.
+
+### FLAME
+[Flame](https://flame.is.tue.mpg.de/) was used for DECA, we used various models avaliable from the site in order to carry out the 3D reconstruction. This included, FLAME2020 models and their [Basel Face Model (BFM) to Flame model converter](https://github.com/TimoBolkart/BFM_to_FLAME) for the albedo option in DECA.
+
+### RetinaFace & Dlib
+RetinaFace: https://github.com/serengil/retinaface
+Used for preprocessing in order to detect the faces, crop to the correct region in the image, and use Dlib 68-landmark prediction to remove all the background from the faces. Both libraries are open-source (Apache 2.0 for RetinaFace, Boost 1.0 for dlib) and their pre-trained weights are downloaded automatically by our preproc_env.

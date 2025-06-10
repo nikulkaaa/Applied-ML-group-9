@@ -86,8 +86,7 @@ if ! conda_env_exists preproc_env; then
   "${CONDA_BIN}" create -y -n preproc_env python=3.8 pip
 
   echo ">>> Installing dlib…"
-  conda config --set channel_priority strict --env
-  conda_run preproc_env conda install dlib=19.22.0 -y
+  conda_run preproc_env conda install -c conda-forge dlib=19.22.0 -y
 
   echo ">>> Installing preprocessing requirements…"
   conda_run preproc_env pip install -r requirements_preproc.txt

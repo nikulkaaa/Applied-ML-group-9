@@ -21,7 +21,7 @@ def download_and_extract(file_id, output_name, extract_to="data/"):
         print(f"Extracting {output_name}...")
         with zipfile.ZipFile(output_name, 'r') as zip_ref:
             zip_ref.extractall(extract_to)
-        print(f"Extraction of {output_name} complete ♥")
+        print(f"Extraction of {output_name} complete")
 
     os.remove(output_name)
 

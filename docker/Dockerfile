@@ -13,13 +13,14 @@ RUN apt-get update && \
 # Copy requirements and dlib files
 COPY requirements_preproc.txt requirements_preproc.txt
 COPY requirements_predict.txt requirements_predict.txt
-COPY dlib-19.22.0.tar.gz dlib-19.22.0.tar.gz
 COPY app ./app
 COPY checkpoints ./checkpoints
 COPY DECA ./DECA
 COPY app.py ./app.py
 
 # Set up conda environments
+RUN conda config --add channels conda-forge && \
+    conda config --set channel_priority strict
 
 # DECA environment
 RUN conda create -y -n deca_env python=3.8 pip && \
@@ -27,10 +28,10 @@ RUN conda create -y -n deca_env python=3.8 pip && \
       --index-url https://download.pytorch.org/whl/cpu && \
     conda run -n deca_env pip install pytorch3d==0.7.8+pt2.1.0cpu --extra-index-url https://miropsota.github.io/torch_packages_builder && \
     conda run -n deca_env pip install numpy==1.23 scipy "scikit-image>=0.15" opencv-python PyYAML==5.1.1 face-alignment==1.3.4 yacs==0.1.8 ninja fvcore chumpy kornia tqdm
-
+    
 # Preproc environment
 RUN conda create -y -n preproc_env python=3.8 pip && \
-    conda run -n preproc_env pip install ./dlib-19.22.0.tar.gz && \
+    conda run -n preproc_env conda install dlib=19.22.0 -y && \
     conda run -n preproc_env pip install -r requirements_preproc.txt
 
 # Predict environment

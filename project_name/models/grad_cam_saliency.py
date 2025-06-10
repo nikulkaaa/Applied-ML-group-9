@@ -1,5 +1,6 @@
-# gradcam_utils.py
-
+"""
+File to create saliency maps (Grad-CAM)
+"""
 import torch
 import numpy as np
 import cv2
@@ -58,7 +59,8 @@ def compute_gradcam(model, input_tensor, target_class=None, stream='rgb'):
     handle.remove()
 
     grads = input_used.grad
-    target_activations = activations[0]  # Last conv block output
+    # Last conv block output
+    target_activations = activations[0]
     pooled_grads = grads.mean(dim=[0, 2, 3])
 
     # Weighted sum of the activations
@@ -71,22 +73,52 @@ def compute_gradcam(model, input_tensor, target_class=None, stream='rgb'):
 
     return heatmap.cpu().numpy()
 
-def show_gradcam_on_image(image_tensor, heatmap, alpha=0.4):
+def show_gradcam_on_image(
+    image_tensor: torch.Tensor,
+    heatmap: np.ndarray,
+    alpha: float = 0.40,
+    show: bool = True,
+):
     """
-    Overlay Grad-CAM heatmap on the original image tensor.
+    Blend a Grad-CAM heat-map on top of the original RGB image and either
+    display it (Matplotlib) or just return the result.
 
-    Args:
-        image_tensor: (3, H, W) torch.Tensor in range [0, 1]
-        heatmap: Grad-CAM heatmap (H, W) in numpy
+    Parameters
+    ----------
+    image_tensor : (3,H,W) torch.Tensor in [0,1]
+    heatmap      : (H,W) numpy array – arbitrary range, normalised internally
+    alpha        : opacity of the heat-map (0 = only image, 1 = only CAM)
+    show         : if True (default) pop up with plt.imshow; otherwise just
+                   return the uint8 overlay.
     """
-    image = image_tensor.permute(1, 2, 0).detach().cpu().numpy()
-    image = np.uint8(255 * image)
-    heatmap_resized = cv2.resize(heatmap, (image.shape[1], image.shape[0]))
-    heatmap_color = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
-    superimposed_img = heatmap_color * alpha + image
+    # Prepare background image
+    img = image_tensor.detach().cpu().permute(1, 2, 0).numpy()
+    if img.max() <= 1.0 + 1e-6:
+        img = (img * 255.0).astype(np.uint8)
+    else:
+        img = img.astype(np.uint8)
 
-    plt.figure(figsize=(6, 6))
-    plt.imshow(superimposed_img[..., ::-1])  # BGR to RGB
-    plt.axis('off')
-    plt.title("Grad-CAM Overlay")
-    plt.show()
+    # Prepare CAM 
+    if heatmap.ndim == 3:
+        heatmap = heatmap.squeeze() 
+
+    # resize to match the image
+    cam = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
+    cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+
+    cam_uint8  = np.uint8(cam * 255)
+    cam_color  = cv2.applyColorMap(cam_uint8, cv2.COLORMAP_JET) 
+    cam_color  = cv2.cvtColor(cam_color, cv2.COLOR_BGR2RGB)
+
+    # Blend
+    overlay = cv2.addWeighted(cam_color, alpha, img, 1.0 - alpha, 0)
+
+    if show:
+        plt.figure(figsize=(6, 6))
+        plt.imshow(overlay)
+        plt.axis("off")
+        plt.title("Grad-CAM Overlay")
+        plt.show(block=False)
+
+    return overlay 
+

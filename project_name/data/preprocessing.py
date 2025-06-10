@@ -1,3 +1,9 @@
+"""
+Preprocessing file.
+Face detected with RetinaFace then eye-aligned done (dlib 68 landmarks) and
+background-masked by the face convex-hull.
+"""
+
 import os
 import cv2
 import dlib
@@ -16,7 +22,7 @@ def detect_face(image_path, margin=10, img_size=(128, 128)):
     Finally resizes to img_size.
 
     Returns:
-        np.ndarray or None: The 128×128 masked RGB face (dtype=uint8).
+        np.ndarray or None: The 128×128 masked RGB face.
     """
     img = cv2.imread(image_path)
     if img is None:
@@ -26,38 +32,37 @@ def detect_face(image_path, margin=10, img_size=(128, 128)):
     # Convert BGR → RGB for RetinaFace
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # 1) Run RetinaFace to get bounding box
+    # Run RetinaFace to get bounding box
     detector_retina = RetinaFace()
     results = detector_retina.predict(img_rgb)
     if not results:
         print(f"No faces detected in {image_path}")
         return None
 
-    # Take the first (largest) face
+    # Take the first (biggest) face
     face = results[0]
     x1, y1, x2, y2 = face['x1'], face['y1'], face['x2'], face['y2']
 
-    # 2) Apply margin (clamped to image boundaries)
+    # Apply margin
     x1 = max(0, x1 - margin)
     y1 = max(0, y1 - margin)
     x2 = min(img_rgb.shape[1], x2 + margin)
     y2 = min(img_rgb.shape[0], y2 + margin)
 
-    # 3) Crop to that expanded box
+    # Crop to that expanded box
     cropped_face = img_rgb[y1:y2, x1:x2]
     if cropped_face.size == 0:
         print(f"Crop was empty for {image_path}")
         return None
 
-    # 4) Align via Dlib’s landmarks (rotating so eyes are horizontal)
-    aligned_face = align_face(cropped_face)  # still RGB, uint8
+    # Align via Dlib’s landmarks (rotating so eyes are horizontal)
+    aligned_face = align_face(cropped_face)
 
-    # 5) Now re‐run dlib landmarks on the aligned face,
-    #    so we can build a convex hull mask of the exact face shape.
+    # Re‐run dlib landmarks on the aligned face so we can build a convex hull mask of the exact face shape
     gray = cv2.cvtColor(aligned_face, cv2.COLOR_RGB2GRAY)
     dets = detector(gray)
     if len(dets) == 0:
-        # If alignment lost the face, skip masking and just resize the aligned crop
+        # If alignment lost the face skip masking and just resize the aligned crop
         masked_face = aligned_face.copy()
     else:
         # We assume the first detected face is the one we want
@@ -76,19 +81,19 @@ def detect_face(image_path, margin=10, img_size=(128, 128)):
         cv2.fillConvexPoly(mask, hull, 1)
 
         # Convert single‐channel mask → 3‐channel so we can elementwise‐multiply
-        mask_3ch = np.stack([mask, mask, mask], axis=-1)  # shape (h,w,3)
+        mask_3ch = np.stack([mask, mask, mask], axis=-1)
 
         # Apply the mask: all outside‐hull pixels become 0 (black)
-        masked_face = aligned_face * mask_3ch  # dtype uint8
+        masked_face = aligned_face * mask_3ch
     
-    # 6) Resize the masked face to (128×128)
+    # Resize the masked face to (128×128)
     try:
         final_face = cv2.resize(masked_face, img_size, interpolation=cv2.INTER_AREA)
     except Exception as e:
         print(f"Resize failed for {image_path}: {e}")
         return None
 
-    return final_face  # dtype=uint8, shape (128,128,3)
+    return final_face
 
 
 def align_face(face_img):
@@ -99,7 +104,7 @@ def align_face(face_img):
     gray = cv2.cvtColor(face_img, cv2.COLOR_RGB2GRAY)
     dets = detector(gray)
     if len(dets) == 0:
-        # no face, skip alignment
+        # no face skip alignment
         return face_img
 
     shape = predictor(gray, dets[0])
@@ -149,32 +154,17 @@ def preprocess_data():
     """
     Preprocesses the data for training, validation, and testing by detecting faces and saving them to respective folders.
     """
-    # Paths to the input data (folders with images)
-    # train_folder_real = 'data/raw_dataset/Train/Real/'
-    # train_folder_fake = 'data/raw_dataset/Train/Fake/'
-    # validation_folder_real = 'data/raw_dataset/Validation/Real/'
-    # validation_folder_fake = 'data/raw_dataset/Validation/Fake/'
-    # test_folder_real = 'data/raw_dataset/Test/Real/'
-    # test_folder_fake = 'data/raw_dataset/Test/Fake/'
-    test_origin = 'data/test_background/raw'
+    # Paths to the input data
+    real_origin = 'data/merged_raw/real'
+    fake_origin = 'data/merged_raw/fake'
     
-    # Paths to the output data (folders to save cropped faces)
-    # output_train_folder_fake = 'data/preprocessed_dataset/preprocessed_eye_align/Train/Fake/'
-    # output_validation_folder_fake = 'data/preprocessed_dataset/preprocessed_eye_align/Validation/Fake/'
-    # output_test_folder_fake = 'data/preprocessed_dataset/preprocessed_eye_align/Test/Fake/'
-    # output_train_folder_real = 'data/preprocessed_dataset/preprocessed_eye_align/Train/Real/'
-    # output_validation_folder_real = 'data/preprocessed_dataset/preprocessed_eye_align/Validation/Real/'
-    # output_test_folder_real = 'data/preprocessed_dataset/preprocessed_eye_align/Test/Real/'
-    test_goal = 'data/test_background/preprocessed'
+    # Paths to the output data
+    real_goal = 'data/preprocessed_dataset/preprocessed_no_background/real'
+    fake_goal = 'data/preprocessed_dataset/preprocessed_no_background/fake'
     
-    # Process the images in each folder with their respective labels
-    # process_images(train_folder_real, output_train_folder_real, label=0)
-    # process_images(train_folder_fake, output_train_folder_fake, label=1)
-    # process_images(validation_folder_real, output_validation_folder_real, label=0)
-    # process_images(validation_folder_fake, output_validation_folder_fake, label=1)
-    # process_images(test_folder_real, output_test_folder_real, label=0)
-    # process_images(test_folder_fake, output_test_folder_fake, label=1)
-    process_images(test_origin, test_goal, label=1)
+    # Process the images in each folder
+    process_images(real_origin, real_goal, label=1)
+    process_images(fake_origin, fake_goal, label=0)
 
 if __name__ == '__main__':
     preprocess_data()

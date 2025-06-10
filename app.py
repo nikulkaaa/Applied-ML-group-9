@@ -1,62 +1,63 @@
-#!/usr/bin/env python
 """
-Deepfake Recognition API
+Deepfake Recognition API: baseline + FULL pipeline
+ + /upload-image/ -> preprocess : baseline-predict
+ + /upload-image-full/  -> preprocess : DECA's demo_reconstruct.py : full-predict
 
-This module implements a FastAPI application that exposes an endpoint to:
-  1. Upload a JPEG image
-  2. Run a preprocessing pipeline (dlib face detection + transforms)
-  3. Run a prediction model to decide whether the image is real or deepfake
-  4. Return a structured JSON response with the label and confidence
-
-Environment and dependencies are managed via Conda environments:
-  - `preproc_env` for preprocessing (Python 3.8)
-  - `predict_env` for prediction (Python 3.10)
+Environments used
+  - preproc_env   (Python 3.8)  - preprocessing
+  - deca_env  (Python 3.8)  - DECA 3D reconstruction
+  - predict_env   (Python 3.10) - baseline + full models
 """
 
 import os
+import uuid
+import shutil
 import subprocess
 import json
 import logging
 from pathlib import Path
+import time 
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-# Standard logger for Uvicorn
 logger = logging.getLogger("uvicorn.error")
 
-# Path to Conda binary (set via env or default “conda”)
-CONDA_BIN = os.getenv("CONDA_BIN", "conda")
-# Directory where uploads are stored
+CONDA_BIN = (
+    os.getenv("CONDA_BIN")
+    or os.getenv("CONDA_EXE")
+    or shutil.which("conda")
+)
+if not CONDA_BIN or not Path(CONDA_BIN).exists():
+    raise RuntimeError(
+        "Conda executable not found. Make sure Miniconda/Anaconda is "
+        "installed and that either CONDA_BIN or CONDA_EXE is set."
+    )
+
+DECA_ENV = os.getenv("DECA_ENV", "deca_env") # the deca env we created w/ shell script
+
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 class UploadImageResponse(BaseModel):
-    """
-    JSON schema for the response to an image upload.
-
-    Attributes:
-        status (str): "success" or "error".
-        output (str | None): Optional textual output from preprocessing/prediction.
-        error (str | None): Error message if status == "error".
-        image_is_real (bool | None): True if the model predicts “real”, False for “deepfake”.
-        confidence (float | None): Probability score for the predicted label.
-    """
     status: str
-    output: str | None = None
     error: str | None = None
     image_is_real: bool | None = None
     confidence: float | None = None
+    saliency: str | None = None
 
 
-# Initialize FastAPI app with metadata
 app = FastAPI(
     title="Deepfake Recognition API",
-    description="Upload a JPEG and run preprocessing + prediction",
-    version="1.0.0"
+    description="Upload a JPEG and run preprocessing + prediction (+ Grad-CAM)",
+    version="1.2.1",
 )
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8501"],
@@ -64,119 +65,274 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def run_subprocess_and_stream(cmd: list[str], *, error_ctx: str, face_error_ok: bool = False, status_prefix: str = ""):
+    """
+    Runs a subprocess and yields its output line by line.
+    Handles errors and special "no face" case.
+    """
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1 
+        )
+
+        stdout_lines = []
+        stderr_lines = []
+
+        for line in proc.stdout:
+            stdout_lines.append(line.strip())
+
+            logger.debug(f"Subprocess stdout: {line.strip()}")
+
+        for line in proc.stderr:
+            stderr_lines.append(line.strip())
+            logger.error(f"Subprocess stderr: {line.strip()}")
+            yield f"ERROR: {status_prefix} stderr: {line.strip()}\n"
+
+        proc.wait()
+
+        if proc.returncode == 0:
+            return "\n".join(stdout_lines), "\n".join(stderr_lines)
+
+        # Special-case: if demo_preproc signals “no face” via exit code 2
+        if face_error_ok and proc.returncode == 2:
+            raise HTTPException(400, "No face detected in the image. Please make sure your image is of a human face.")
+
+        try:
+            j = json.loads("".join(stdout_lines).strip() or "{}")
+            if "error" in j:
+                raise HTTPException(400, j["error"])
+        except json.JSONDecodeError:
+            pass
+
+        raise HTTPException(500, f"{error_ctx}:\n" + '\n'.join(stderr_lines).strip())
+
+    except FileNotFoundError as e:
+        raise HTTPException(
+            500,
+            f"Executable not found: {cmd[0]}\nDetail: {e}"
+        )
+
+
+# /upload-image/ handles baseline model
+@app.post("/upload-image/", response_model=UploadImageResponse)
+async def upload_image(file: UploadFile = File(...)):
+    """
+    Baseline pipeline: preprocess → baseline model
+    Returns StreamingResponse with status updates.
+    """
+    # Generate a unique identifier for this request
+    # This ensures that each upload gets its own isolated processing space
+    request_id = str(uuid.uuid4())
+    
+    # Create a unique directory for this specific upload and its processing
+    # This will be uploads/[filename]_uuid/
+    unique_upload_dir = UPLOAD_DIR / f"{file.filename.split('.')[0]}_{request_id}"
+    # Create the main unique directory
+    unique_upload_dir.mkdir(exist_ok=True)
+    
+    dest = unique_upload_dir / file.filename
+    contents = await file.read()
+    with open(dest, "wb") as fh:
+        fh.write(contents)
+
+    preproc_dir = unique_upload_dir / f"{dest.stem}_preprocessed"
+    preproc_dir.mkdir(exist_ok=True)
+
+    def generate_baseline_stream():
+        def step(msg: str):
+            yield f"STATUS: {msg}\n"
+            time.sleep(0.1)
+
+        try:
+            # Preprocessing step
+            yield from step("PREPROC_START")
+            pre = subprocess.run(
+                [
+                    CONDA_BIN, "run", "-n", "preproc_env", "--no-capture-output",
+                    "python", "app/preproc_inference.py", str(dest)
+                ],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            if pre.returncode == 2:
+                yield from step("PREPROC_NO_FACE")
+                yield "ERROR: No face detected in the image.\n"
+                return
+            elif pre.returncode != 0:
+                yield from step("PREPROC_ERROR")
+                yield f"ERROR: Pre-processing failed:\n{pre.stderr}"
+                return
+            yield from step("PREPROC_DONE")
+
+            # Baseline prediction
+            yield from step("MODEL_START")
+            pred = subprocess.run(
+                [
+                    CONDA_BIN, "run", "-n", "predict_env", "--no-capture-output",
+                    "python", "app/predict_baseline.py", str(preproc_dir)
+                ],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            if pred.returncode != 0:
+                yield from step("MODEL_ERROR")
+                stderr_text = pred.stderr.rstrip("\n")
+                for ln in stderr_text.split("\n"):
+                    yield f"ERROR: {ln}\n"
+                return
+            yield from step("MODEL_DONE")
+
+            # Final JSON
+            result_json_str = pred.stdout.strip()
+            result = json.loads(result_json_str)
+
+            # Adjust saliency path to be relative to UPLOADS_DIR
+            if "saliency" in result and result["saliency"]:
+                abs_saliency_path = Path(result["saliency"])
+                relative_saliency_path = abs_saliency_path.relative_to(UPLOAD_DIR)
+                result["saliency"] = str(relative_saliency_path).replace("\\", "/")
+            
+            yield json.dumps(result) + "\n"
+
+        except HTTPException as e:
+            yield f"ERROR: HTTP Exception - {e.status_code}: {e.detail}\n"
+        except Exception as e:
+            logger.exception("Unhandled error in /upload-image/ generate_baseline_stream")
+            yield f"ERROR: Unexpected server error: {e}\n"
+
+    return StreamingResponse(generate_baseline_stream(), media_type="text/plain")
+
+
+# /upload-image-full/ handles full model
+@app.post("/upload-image-full/")
+async def upload_image_full(file: UploadFile = File(...)):
+    """
+    Streaming version: yields status lines as we go.
+    At the very end, yields a final JSON line (with label/confidence/saliency).
+    """
+    # Generate a unique identifier for this request
+    request_id = str(uuid.uuid4())
+
+    # Create a unique directory for this specific upload and its processing
+    unique_upload_dir = UPLOAD_DIR / f"{file.filename.split('.')[0]}_{request_id}"
+    # Create the main unique directory
+    unique_upload_dir.mkdir(exist_ok=True)
+
+    # Save the file inside this unique dir
+    dest = unique_upload_dir / file.filename
+    contents = await file.read()
+    with open(dest, "wb") as fh:
+        fh.write(contents)
+
+    preproc_dir = unique_upload_dir / f"{dest.stem}_preprocessed"
+    preproc_dir.mkdir(exist_ok=True)
+
+    deca_output_dir = preproc_dir / "deca_output"
+    deca_output_dir.mkdir(exist_ok=True)
+
+    def generate():
+        def step(msg: str):
+            yield f"STATUS: {msg}\n"
+            import time; time.sleep(0.1)
+
+        # Preprocessing
+        yield from step("PREPROC_START")
+        pre = subprocess.run(
+            [
+                CONDA_BIN, "run", "-n", "preproc_env", "--no-capture-output",
+                "python", "app/preproc_inference.py", str(dest)
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        if pre.returncode == 2:
+            yield from step("PREPROC_NO_FACE")
+            yield "ERROR: No face detected in the image, make sure to upload an image of a (clear) face.\n "
+            return
+        elif pre.returncode != 0:
+            yield from step("PREPROC_ERROR")
+            yield f"ERROR: Pre-processing failed:\n{pre.stderr}"
+            return
+        yield from step("PREPROC_DONE")
+
+        # 3D Reconstruction
+        yield from step("3D_START")
+        proc3d = subprocess.run(
+            [
+                CONDA_BIN, "run", "-n", "deca_env", "--no-capture-output",
+                "python", "DECA/demos/demo_reconstruct.py",
+                "-i", str(preproc_dir),
+                "--no_recursive",
+                "--saveDepth", "True",
+                "--useTex", "True",
+                "--rasterizer_type", "pytorch3d",
+                "--device", "cpu",
+                "-s", str(deca_output_dir)
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        if proc3d.returncode != 0:
+            yield from step("3D_ERROR")
+            yield f"ERROR: 3-D reconstruction failed:\n{proc3d.stderr}"
+            return
+        yield from step("3D_DONE")
+
+        # Full-model Prediction
+        yield from step("MODEL_START")
+        pred = subprocess.run(
+            [
+                CONDA_BIN, "run", "-n", "predict_env", "--no-capture-output",
+                "python", "app/predict_full.py",
+                str(preproc_dir),
+                str(deca_output_dir)
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        if pred.returncode != 0:
+            yield from step("MODEL_ERROR")
+            stderr_text = pred.stderr.rstrip("\n")
+            for ln in stderr_text.split("\n"):
+                yield f"ERROR: {ln}\n"
+            return
+        yield from step("MODEL_DONE")
+
+        # Final JSON
+        result_json_str = pred.stdout.strip()
+        result = json.loads(result_json_str)
+
+        for key in ["saliency", "rendered_3d_image", "depth_map_image", "normals_map_image"]:
+            if key in result and result[key]:
+                abs_path = Path(result[key]).resolve()
+                uploads_root_abs = UPLOAD_DIR.resolve()
+                try:
+                    relative_path = abs_path.relative_to(uploads_root_abs)
+                    result[key] = str(relative_path).replace("\\", "/")
+                except ValueError:
+                    result[key] = abs_path.name
+
+        yield json.dumps(result) + "\n"
+
+
+    return StreamingResponse(generate(), media_type="text/plain")
+
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """
-    Handle HTTPException globally.
-
-    Converts any raised HTTPException into a JSONResponse with:
-      {
-        "status": "error",
-        "error": exc.detail
-      }
-
-    Args:
-        request (Request): The incoming HTTP request.
-        exc (HTTPException): The exception raised.
-
-    Returns:
-        JSONResponse: A JSON body with error details and the appropriate status code.
-    """
     return JSONResponse(
         status_code=exc.status_code,
-        content={"status": "error", "error": exc.detail}
+        content={"status": "error", "error": exc.detail},
     )
-
-
-@app.post("/upload-image/", response_model=UploadImageResponse)
-async def upload_image(file: UploadFile = File(...)) -> UploadImageResponse:
-    """
-    Uploads an image, runs preprocessing and prediction, and returns structured JSON.
-
-    Workflow:
-      1. Save the uploaded file to ./uploads
-      2. Call the `preproc_env` Conda environment to run preproc_inference.py
-      3. If no face is found, return 400 with a helpful message
-      4. Call the `predict_env` Conda environment to run predict.py
-      5. Parse its JSON stdout and return label + confidence
-
-    Args:
-        file (UploadFile): A JPEG image uploaded by the client.
-
-    Raises:
-        HTTPException(400): If no face is detected.
-        HTTPException(500): If preprocessing or prediction fails unexpectedly.
-
-    Returns:
-        UploadImageResponse: Pydantic model with fields:
-          - status: "success"
-          - image_is_real: True/False
-          - confidence: float
-    """
-    try:
-        # 1) Save upload
-        dest = UPLOAD_DIR / file.filename
-        with open(dest, "wb") as fh:
-            fh.write(await file.read())
-
-        # 2) Preprocessing step
-        pre = subprocess.run(
-            [CONDA_BIN, "run", "-n", "preproc_env", "--no-capture-output",
-             "python", "app/preproc_inference.py", str(dest)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        if pre.returncode == 2:
-            raise HTTPException(400, "No face detected in the image.")
-        elif pre.returncode != 0:
-            raise HTTPException(500, f"Pre-processing error:\n{pre.stderr.strip()}")
-
-        # 3) Prediction step
-        preproc_dir = dest.parent / f"{dest.stem}_preprocessed"
-        pred = subprocess.run(
-            [CONDA_BIN, "run", "-n", "predict_env", "--no-capture-output",
-             "python", "app/predict.py", str(preproc_dir)],
-            check=True, stdout=subprocess.PIPE, text=True
-        )
-        result = json.loads(pred.stdout.strip())
-
-        # 4) Build and return response
-        return UploadImageResponse(
-            status="success",
-            image_is_real=(result.get("label") == "real"),
-            confidence=float(result.get("confidence", 0.0)),
-        )
-
-    except HTTPException:
-        # propagate known HTTPExceptions to be handled above
-        raise
-    except Exception as e:
-        # Log full traceback for debugging, then return HTTP 500
-        logger.exception("Unhandled error during pipeline")
-        raise HTTPException(500, f"Unexpected error: {e}")
 
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """
-    Catch-all exception handler for unanticipated errors.
-
-    Prints traceback to the console and returns a 500 JSONResponse.
-
-    Args:
-        request (Request): The incoming HTTP request.
-        exc (Exception): The uncaught exception instance.
-
-    Returns:
-        JSONResponse: { "status": "error", "error": str(exc) }
-    """
-    # Print full traceback in server logs
     import traceback
     traceback.print_exc()
-
     return JSONResponse(
         status_code=500,
         content={"status": "error", "error": str(exc)},
     )
+
+

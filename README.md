@@ -9,9 +9,6 @@ Before you begin, ensure you have the following:
   - Miniconda3
   - Make sure to repopulate the repository (this is described in detail below)
 
-TODO: 
-- MAKE SURE WE COVER AND TEST EVERY STEP (ON ALL PLATFORMS)
-
 ## 2. Installation with Docker (multi-platform and most recommended)
 
 2.1 Open a Git Bash terminal and clone the repository

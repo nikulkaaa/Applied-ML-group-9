@@ -3,18 +3,26 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.optimizers import Adam
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from metrics import ModelMetrics
 import matplotlib.pyplot as plt
-import pandas as pd
 import cv2
 
-# Set image size and batch size
-IMG_SIZE = (128, 128)
+IMG_SIZE   = (128, 128)
 BATCH_SIZE = 32
-EPOCHS = 1
-K_FOLDS = 2
+EPOCHS     = 20
+
+K_FOLDS   = 5
+TEST_SIZE = 0.20
+
 DATA_ROOT = "data/preprocessed_dataset/preprocessed_no_background"
+
+# Where all weights get saved
+MODEL_DIR = "saved_models"
+FOLD_DIR  = os.path.join(MODEL_DIR, "baseline_folds")
+os.makedirs(FOLD_DIR, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
+
 
 def build_baseline_model(input_shape=(128, 128, 3)):
     inputs = tf.keras.Input(shape=input_shape)
@@ -32,12 +40,7 @@ def build_baseline_model(input_shape=(128, 128, 3)):
     return model
 
 def load_filepaths_and_labels(root_dir):
-    """
-    Collect all image filepaths under root_dir/real and root_dir/fake, 
-    returning (filepaths, labels) arrays.
-    """
-    filepaths = []
-    labels = []
+    filepaths, labels = [], []
     for label_str, label_val in [("real", 0), ("fake", 1)]:
         class_dir = os.path.join(root_dir, label_str)
         for fname in os.listdir(class_dir):
@@ -47,10 +50,6 @@ def load_filepaths_and_labels(root_dir):
     return np.array(filepaths), np.array(labels)
 
 def preprocess_path_label(path, label, augment=False):
-    """
-    Given a file path and integer label (0 or 1), load the image, resize, normalize,
-    and optionally augment. Return (image_tensor, label_tensor).
-    """
     img = tf.io.read_file(path)
     img = tf.image.decode_jpeg(img, channels=3)
     img = tf.image.resize(img, IMG_SIZE)
@@ -60,13 +59,9 @@ def preprocess_path_label(path, label, augment=False):
         img = tf.image.random_flip_left_right(img)
         img = tf.image.random_contrast(img, 0.9, 1.1)
 
-    label_tensor = tf.cast(label, tf.float32)
-    return img, label_tensor
+    return img, tf.cast(label, tf.float32)
 
 def make_dataset(filepaths, labels, batch_size, shuffle=False, augment=False):
-    """
-    Create a tf.data.Dataset from arrays of (filepaths, labels). Labels are 0/1 scalars.
-    """
     ds = tf.data.Dataset.from_tensor_slices((filepaths, labels))
     if shuffle:
         ds = ds.shuffle(buffer_size=len(filepaths))
@@ -79,15 +74,11 @@ def plot_loss(history, fold_idx):
     plt.figure(figsize=(8, 5))
     plt.plot(history.history["loss"], label="Training Loss")
     plt.plot(history.history["val_loss"], label="Validation Loss")
-    plt.title(f"Fold {fold_idx} Loss Over Epochs")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+    plt.title(f"Fold {fold_idx} Loss")
+    plt.xlabel("Epoch"); plt.ylabel("Loss")
+    plt.legend(); plt.grid(True); plt.tight_layout(); plt.show()
 
-def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name):
     grad_model = tf.keras.models.Model(
         [model.inputs],
         [model.get_layer(last_conv_layer_name).output, model.output]
@@ -108,97 +99,128 @@ def display_gradcam(image, heatmap, alpha=0.4):
     heatmap = np.uint8(255 * heatmap)
     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
     superimposed_img = heatmap * alpha + image
-    superimposed_img = np.uint8(superimposed_img)
-    plt.figure(figsize=(6, 6))
-    plt.imshow(superimposed_img)
+    plt.figure(figsize=(5, 5))
+    plt.imshow(np.uint8(superimposed_img))
     plt.axis("off")
-    plt.title("Grad-CAM Overlay")
     plt.show()
 
-def run_kfold():
-    # Load all filepaths & labels
+def run_experiment():
     filepaths, labels = load_filepaths_and_labels(DATA_ROOT)
+    train_paths, test_paths, train_labels, test_labels = train_test_split(
+        filepaths,
+        labels,
+        test_size=TEST_SIZE,
+        stratify=labels,
+        random_state=42,
+        shuffle=True,
+    )
 
-    # Stratified K-Fold
     skf = StratifiedKFold(n_splits=K_FOLDS, shuffle=True, random_state=42)
     fold_metrics = []
 
-    save_dir = "saved_models_test"
-    os.makedirs(save_dir, exist_ok=True)
-
-    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(filepaths, labels), start=1):
+    for fold_idx, (tr_idx, val_idx) in enumerate(
+        skf.split(train_paths, train_labels), start=1
+    ):
         print(f"\n=== Fold {fold_idx}/{K_FOLDS} ===")
+        tr_paths, tr_labels = train_paths[tr_idx], train_labels[tr_idx]
+        val_paths, val_labels = train_paths[val_idx], train_labels[val_idx]
 
-        train_paths = filepaths[train_idx]
-        train_labels = labels[train_idx]
-        val_paths = filepaths[val_idx]
-        val_labels = labels[val_idx]
+        tr_ds  = make_dataset(tr_paths,  tr_labels, BATCH_SIZE,
+                              shuffle=True,  augment=True)
+        val_ds = make_dataset(val_paths, val_labels, BATCH_SIZE,
+                              shuffle=False, augment=False)
 
-        # Build tf.data.Datasets (labels are scalars now)
-        train_ds = make_dataset(train_paths, train_labels, BATCH_SIZE, shuffle=True, augment=True)
-        val_ds   = make_dataset(val_paths,   val_labels,   BATCH_SIZE, shuffle=False, augment=False)
-
-        # Build and compile model with sigmoid + binary_crossentropy
         model = build_baseline_model(input_shape=(128, 128, 3))
-        model.compile(
-            optimizer=Adam(learning_rate=1e-4),
-            loss="binary_crossentropy",
-            metrics=["accuracy"]
-        )
+        model.compile(optimizer=Adam(1e-4),
+                      loss="binary_crossentropy",
+                      metrics=["accuracy"])
 
-        # Train
-        history = model.fit(train_ds, validation_data=val_ds, epochs=EPOCHS, verbose=1)
+        history = model.fit(tr_ds, validation_data=val_ds,
+                            epochs=EPOCHS, verbose=1)
         plot_loss(history, fold_idx)
 
-        # Evaluation on validation set
-        y_true = []
-        y_pred = []
-        y_scores = []
-        for images_batch, labels_batch in val_ds:
-            preds = model.predict(images_batch)[:, 0]
-            true_labels = labels_batch.numpy().astype(int)
-            predicted_labels = (preds > 0.5).astype(int)
-            y_true.extend(true_labels.tolist())
-            y_pred.extend(predicted_labels.tolist())
+        y_true, y_pred, y_scores = [], [], []
+        for imgs, lbls in val_ds:
+            preds = model.predict(imgs)[:, 0]
+            y_true.extend(lbls.numpy().astype(int).tolist())
+            y_pred.extend((preds > 0.5).astype(int).tolist())
             y_scores.extend(preds.tolist())
 
-        metrics = ModelMetrics(y_true=y_true, y_pred=y_pred, y_scores=y_scores)
-        fold_result = metrics.get_all_metrics()
-        fold_metrics.append(fold_result)
-        print(f"Fold {fold_idx} metrics: {fold_result}")
+        metrics = ModelMetrics(
+            y_true=y_true, y_pred=y_pred, y_scores=y_scores
+        ).get_all_metrics()
 
-        shown = 0
-        for images_batch, labels_batch in val_ds:
-            # images_batch: shape (batch_size, 128,128,3), values in [0,1]
-            for i in range(images_batch.shape[0]):
-                # Prepare a single image for Grad-CAM
-                img_tensor = tf.expand_dims(images_batch[i], axis=0)
-                
-                # Compute Grad-CAM heatmap
-                heatmap = make_gradcam_heatmap(img_tensor, model, model.last_conv_layer_name)
-                
-                # Convert image back to uint8 for display
-                orig_img = (images_batch[i].numpy() * 255).astype(np.uint8)
-                
-                # Overlay and show
-                display_gradcam(orig_img, heatmap)
-                
-                shown += 1
-                if shown >= 5:
-                    break
-            if shown >= 5:
-                break
+        metrics["train_acc"] = float(history.history["accuracy"][-1])
+        metrics["val_acc"]   = float(metrics.get("accuracy", metrics.get("acc", 0.0)))
 
-        # Save this fold’s model
-        model.save(os.path.join(save_dir, f"baseline_fold_{fold_idx}.keras"))
+        fold_metrics.append(metrics)
+        print(f"Fold {fold_idx} metrics:")
+        for k, v in metrics.items():
+            if k == "confusion_matrix":
+                print(f"{k}:")
+                print(np.array(v))
+            else:
+                print(f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}")
 
-    # Summarize across folds
-    df = pd.DataFrame(fold_metrics)
-    numeric_df = df.drop(columns=["confusion_matrix"], errors="ignore")
-    summary = numeric_df.agg(["mean", "std"])
-    print("\n=== K-Fold Summary (Baseline) ===")
-    print(summary)
-    return summary
+        model.save(os.path.join(FOLD_DIR, f"baseline_fold_{fold_idx}.keras"))
 
-if __name__ == "__main__":
-    run_kfold()
+    # CV SUMMARY + OVER-FITTING CHECK
+    print("\n~~~~~~~ K-fold summary ~~~~~~~")
+    for k in ["val_acc", "auc", "eer", "f1"]:
+        if k in fold_metrics[0]:
+            scores = np.array([m[k] for m in fold_metrics])
+            print(f"{k.upper():7s}: {scores.mean():.4f} ± {scores.std():.4f}")
+
+    train_accs = np.array([m["train_acc"] for m in fold_metrics])
+    val_accs   = np.array([m["val_acc"]   for m in fold_metrics])
+    gap     = train_accs.mean() - val_accs.mean()
+    std_val = val_accs.std()
+
+    print("\n~~~~~~~ Over-fitting check ~~~~~~~")
+    print(f"Train-val acc gap : {gap:.3f}")
+    print(f"Val-acc  std-dev  : {std_val:.3f}")
+    if gap > 0.10 or std_val > 0.05:
+        print("Model is likely over-fitting.")
+    else:
+        print("No strong signs of over-fitting.")
+
+    # Final model on full 80%
+    print("\n~~~~ Training final model on full training split ~~~~")
+    final_model = build_baseline_model(input_shape=(128, 128, 3))
+    final_model.compile(optimizer=Adam(1e-4),
+                        loss="binary_crossentropy",
+                        metrics=["accuracy"])
+
+    full_train_ds = make_dataset(train_paths, train_labels,
+                                 BATCH_SIZE, shuffle=True, augment=True)
+    final_model.fit(full_train_ds, epochs=EPOCHS, verbose=1)
+
+    # Hold-out Evaluation
+    test_ds = make_dataset(test_paths, test_labels,
+                           BATCH_SIZE, shuffle=False, augment=False)
+    y_true, y_pred, y_scores = [], [], []
+    for imgs, lbls in test_ds:
+        preds = final_model.predict(imgs)[:, 0]
+        y_true.extend(lbls.numpy().astype(int).tolist())
+        y_pred.extend((preds > 0.5).astype(int).tolist())
+        y_scores.extend(preds.tolist())
+
+    test_metrics = ModelMetrics(
+        y_true=y_true, y_pred=y_pred, y_scores=y_scores
+    ).get_all_metrics()
+
+    print("\n~~~~ Hold-out Test Metrics ~~~~")
+    for k, v in test_metrics.items():
+        if k == "confusion_matrix":
+            print(f"{k}:")
+            print(np.array(v))
+        else:
+            print(f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}")
+
+    # Save final weights only (no metrics/summary CSVs)
+    final_weights = os.path.join(MODEL_DIR, "baseline_model.keras")
+    final_model.save(final_weights)
+    print(f"\nSaved deployable weights → {final_weights}")
+
+if __name__ == "_main_":
+    run_experiment()

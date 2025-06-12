@@ -1,12 +1,13 @@
 from __future__ import annotations
 import os
-os.environ["ALBUMENTATIONS_DISABLE_DOMAIN_ADAPTATION"] = "1"  # skips qudida + sklearn
-os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1" # ignores another warning for clarity
+os.environ["ALBUMENTATIONS_DISABLE_DOMAIN_ADAPTATION"] = "1"
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 
 import argparse
 import itertools
 import math
 import matplotlib.pyplot as plt
+import json
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Callable, List
@@ -14,7 +15,6 @@ from typing import Callable, List
 import albumentations as A
 import warnings
 import optuna
-import json
 import cv2
 import numpy as np
 import torch
@@ -40,8 +40,33 @@ def _pil_or_cv(path: Path) -> np.ndarray:
         arr = arr[..., None]
     return arr
 
-def rgb_diff(orig: torch.Tensor, rend: torch.Tensor) -> torch.Tensor:
-    return torch.abs(orig - rend).mean(0, keepdim=True)
+def laplacian_pyramid_diff(orig: torch.Tensor, rend: torch.Tensor) -> torch.Tensor:
+    """
+    Multi-scale Laplacian (edge+structure) difference between two images.
+    Returns a map capturing structure differences robustly.
+    """
+    gray_o = 0.2989 * orig[0] + 0.5870 * orig[1] + 0.1140 * orig[2]
+    gray_r = 0.2989 * rend[0] + 0.5870 * rend[1] + 0.1140 * rend[2]
+
+    def laplacian(img):
+        kernel = torch.tensor([[0, 1, 0],
+                               [1,-4, 1],
+                               [0, 1, 0]], dtype=img.dtype, device=img.device).view(1,1,3,3)
+        return F.conv2d(img[None, None], kernel, padding=1)[0,0]
+    levels = 9
+    diffs = []
+    o, r = gray_o, gray_r
+    for _ in range(levels):
+        l_o = laplacian(o)
+        l_r = laplacian(r)
+        diffs.append(torch.abs(l_o - l_r))
+        o = F.avg_pool2d(o[None, None], 2, stride=2)[0,0]
+        r = F.avg_pool2d(r[None, None], 2, stride=2)[0,0]
+        if o.shape != gray_o.shape:
+            o = F.interpolate(o[None, None], size=gray_o.shape, mode='bilinear', align_corners=False)[0,0]
+            r = F.interpolate(r[None, None], size=gray_o.shape, mode='bilinear', align_corners=False)[0,0]
+    diff = torch.stack(diffs).mean(0, keepdim=True)
+    return diff
 
 def depth_inconsistency(depth: torch.Tensor, k: int = 5) -> torch.Tensor:
     pad = k // 2
@@ -70,7 +95,6 @@ def set_seed(seed: int = 42) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.use_deterministic_algorithms(False)
 
-# Dataset
 class DeepFake3DFullDataset(Dataset):
     exts = (".png", ".jpg", ".jpeg")
 
@@ -95,7 +119,6 @@ class DeepFake3DFullDataset(Dataset):
             try:
                 with idx_file.open("rb") as f:
                     temp = pickle.load(f)
-                # verify every referenced file still exists
                 for sample in temp:
                     if any(not Path(sample[k]).exists() for k in ("orig","rend","depth","norm")):
                         raise FileNotFoundError
@@ -130,8 +153,6 @@ class DeepFake3DFullDataset(Dataset):
                         label=cls_idx
                     ))
             print(f"Indexed {len(samples):,} samples")
-
-            # save fresh index
             idx_file.parent.mkdir(parents=True, exist_ok=True)
             with idx_file.open("wb") as f:
                 pickle.dump(samples, f)
@@ -140,7 +161,6 @@ class DeepFake3DFullDataset(Dataset):
             samples = [samples[i] for i in indices]
 
         self.samples = samples
-
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -167,52 +187,55 @@ class DeepFake3DFullDataset(Dataset):
         return F.interpolate(t.unsqueeze(0), size=hw, mode="bilinear", align_corners=False)[0]
 
     @torch.no_grad()
-    def _errors(self, orig, rend, depth, normals):
-        rgb_e = rgb_diff(orig, rend)
-        dep_e = depth_inconsistency(depth)
+    def _errors(self, img, rend, depth, normals):
+        lap_e = laplacian_pyramid_diff(img, rend)
+        dep_e  = depth_inconsistency(depth)
         if dep_e.shape[0] > 1:
             dep_e = dep_e.mean(0, keepdim=True)
         norm_e = normal_angle_error(normals)
-        return rgb_e, dep_e, norm_e
+        return lap_e, dep_e, norm_e
 
     def __getitem__(self, idx: int):
         cache_f = self.cache_dir / f"{idx}.npz" if self.cache_dir else None
         if cache_f and cache_f.exists():
             d = np.load(cache_f)
-            orig, rend, depth, normals = (
+            img, rend, depth, normals = (
                 torch.from_numpy(d[k]) for k in ("orig", "rend", "depth", "normals"))
-            rgb_e, dep_e, norm_e = (
-                torch.from_numpy(d[k]) for k in ("rgb_e", "dep_e", "norm_e"))
+            lap_e, dep_e, norm_e = (
+                torch.from_numpy(d[k]) for k in ("lap_e", "dep_e", "norm_e"))
             label = torch.tensor(int(d["label"]))
         else:
             m = self.samples[idx]
-            orig = self._load_tensor(m["orig"],  True)
-            rend = self._load_tensor(m["rend"],  True)
+            img = self._load_tensor(m["orig"], True)
+            rend = self._load_tensor(m["rend"], True)
             depth = self._load_tensor(m["depth"], False)
-            normals = self._load_tensor(m["norm"],  True)
-            hw = orig.shape[-2:]
-            rend = self._resize(rend,   hw)
-            depth = self._resize(depth,  hw)
+            normals = self._load_tensor(m["norm"], True)
+            hw = img.shape[-2:]
+            rend = self._resize(rend, hw)
+            depth = self._resize(depth, hw)
             normals = self._resize(normals, hw)
-            rgb_e, dep_e, norm_e = self._errors(orig, rend, depth, normals)
+            lap_e, dep_e, norm_e = self._errors(img, rend, depth, normals)
             label = torch.tensor(m["label"])
-
             if cache_f:
                 cache_f.parent.mkdir(parents=True, exist_ok=True)
                 np.savez_compressed(
                     cache_f,
-                    orig=orig.numpy(),
+                    orig=img.numpy(),
                     rend=rend.numpy(),
                     depth=depth.numpy(),
                     normals=normals.numpy(),
-                    rgb_e=rgb_e.numpy(),
+                    lap_e=lap_e.numpy(),
                     dep_e=dep_e.numpy(),
                     norm_e=norm_e.numpy(),
                     label=label.item())
+        mask = (img.sum(dim=0, keepdim=True) != 0).float()
+        lap_e  = lap_e * mask
+        dep_e  = dep_e * mask
+        norm_e = norm_e * mask
 
         if self.transform:
             depth_ch = depth.shape[0]
-            stack = torch.cat([orig, rend, depth, normals, rgb_e, dep_e, norm_e], 0)
+            stack = torch.cat([img, rend, depth, normals, lap_e, dep_e, norm_e], 0)
             stack = stack.numpy().transpose(1, 2, 0)
             stack = self.transform(image=stack)["image"].transpose(2, 0, 1)
             stack = torch.from_numpy(stack)
@@ -220,10 +243,9 @@ class DeepFake3DFullDataset(Dataset):
             if sum(secs) != stack.shape[0]:
                 depth_ch = stack.shape[0] - 12
                 secs = [3, 3, depth_ch, 3, 1, 1, 1]
-            orig, rend, depth, normals, rgb_e, dep_e, norm_e = torch.split(stack, secs)
-
-        err_stack = torch.cat([rgb_e, dep_e, norm_e], 0)
-        return orig, rend, err_stack, label
+            img, rend, depth, normals, lap_e, dep_e, norm_e = torch.split(stack, secs)
+        err_stack = torch.cat([lap_e, dep_e, norm_e], 0)
+        return img, rend, err_stack, label
 
 def build_kfold_loaders(
     preproc_root: str | Path,
@@ -235,8 +257,6 @@ def build_kfold_loaders(
     num_workers: int | None = None,
     indices: list[int] | None = None):
     num_workers = num_workers or min(2, os.cpu_count())
-
-    # Initialize dataset with optional subsetting
     full_ds = DeepFake3DFullDataset(
         preproc_root, recon_root,
         transform=None, cache_dir=cache_dir,
@@ -246,18 +266,14 @@ def build_kfold_loaders(
             f"No samples were indexed under:\n"
             f"  - {preproc_root}\n  - {recon_root}\n"
             "Check paths / file naming conventions.")
-
     labels = np.array([s["label"] for s in full_ds.samples])
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-
     loaders: list[tuple[DataLoader, DataLoader]] = []
     for tr_idx, vl_idx in skf.split(np.zeros(len(labels)), labels):
         tr_ds = torch.utils.data.Subset(full_ds, tr_idx.tolist())
         vl_ds = torch.utils.data.Subset(full_ds, vl_idx.tolist())
-
         tr_ds.dataset.transform = build_aug()
         vl_ds.dataset.transform = None
-
         loaders.append((
             DataLoader(tr_ds, batch_size=batch_size, shuffle=True,
                        num_workers=num_workers, pin_memory=True,
@@ -268,7 +284,6 @@ def build_kfold_loaders(
         ))
     return loaders
 
-# Model (classic fixed architecture)
 class ConvBlock(nn.Module):
     def __init__(self, inp: int, out: int, drop: float):
         super().__init__()
@@ -279,7 +294,6 @@ class ConvBlock(nn.Module):
             nn.BatchNorm2d(out), nn.ReLU(inplace=True))
         self.pool = nn.MaxPool2d(2)
         self.drop = nn.Dropout2d(drop) if drop else nn.Identity()
-
     def forward(self, x):
         return self.drop(self.pool(self.conv(x)))
 
@@ -294,7 +308,6 @@ class StreamCNN(nn.Module):
             c = n
         self.blocks = nn.Sequential(*layers)
         self.gap = nn.AdaptiveAvgPool2d(1)
-
     def forward(self, x):
         return self.gap(self.blocks(x)).flatten(1)
 
@@ -303,7 +316,7 @@ class TwoStreamDetector(nn.Module):
         super().__init__()
         self.errors_only = errors_only
         if not errors_only:
-            self.rgb_stream = StreamCNN(3)
+            self.img_stream = StreamCNN(3)
         self.err_stream = StreamCNN(3)
         in_feats = 256 if errors_only else 256*2
         self.head = nn.Sequential(
@@ -311,13 +324,15 @@ class TwoStreamDetector(nn.Module):
             nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Dropout(0.5),
             nn.Linear(512, 128, bias=False), nn.BatchNorm1d(128),
             nn.ReLU(inplace=True), nn.Dropout(0.5),
-            nn.Linear(128, 2))
-    def forward(self, rgb, err):
-        feat = (self.err_stream(err) if self.errors_only
-                else torch.cat([self.rgb_stream(rgb), self.err_stream(err)], 1))
+            nn.Linear(128, 2)
+        )
+    def forward(self, img, err):
+        if self.errors_only:
+            feat = self.err_stream(err)
+        else:
+            feat = torch.cat([self.img_stream(img), self.err_stream(err)], dim=1)
         return self.head(feat)
 
-# Training
 def compute_eer(y_true, scores):
     fpr, tpr, _ = roc_curve(y_true, scores)
     fnr = 1 - tpr
@@ -339,11 +354,11 @@ class Trainer:
         else: self.model.eval()
         losses, probs, ys = [], [], []
         pbar = tqdm(loader, desc = "train" if train else "eval", leave = False)
-        for rgb, _, err, y in pbar:
-            rgb, err, y = rgb.to(self.dev), err.to(self.dev), y.to(self.dev)
+        for img, _, err, y in pbar:
+            img, err, y = img.to(self.dev), err.to(self.dev), y.to(self.dev)
             ctx = (torch.cuda.amp.autocast() if self.scaler and train else nullcontext())
             with ctx:
-                logit = self.model(rgb,err)
+                logit = self.model(img,err)
                 loss = F.cross_entropy(logit,y)
             if train:
                 self.opt.zero_grad(set_to_none = True)
@@ -363,58 +378,69 @@ class Trainer:
     def fit(self, tr_loader, vl_loader, epochs, patience=3):
         epochs_no_improve = 0
         best_val_loss = float("inf")
-
         for epoch in range(1, epochs + 1):
+            # Training step
             tr_p, tr_y, tr_l = self._iter(tr_loader, True)
             tr_acc = ((tr_p > 0.5).astype(int) == tr_y).mean()
             if self.sched:
                 self.sched.step()
 
-            vl_p, vl_y, vl_l = self._iter(vl_loader, False)
-            vl_acc = ((vl_p > 0.5).astype(int) == vl_y).mean()
-            auc = roc_auc_score(vl_y, vl_p)
-            eer = compute_eer(vl_y, vl_p)
-            f1 = f1_score(vl_y, (vl_p > 0.5).astype(int))
-            val_loss = vl_l.mean()
+            # Validation step - ONLY if vl_loader is not None
+            if vl_loader is not None:
+                vl_p, vl_y, vl_l = self._iter(vl_loader, False)
+                vl_acc = ((vl_p > 0.5).astype(int) == vl_y).mean()
+                auc = roc_auc_score(vl_y, vl_p)
+                eer = compute_eer(vl_y, vl_p)
+                f1 = f1_score(vl_y, (vl_p > 0.5).astype(int))
+                val_loss = vl_l.mean()
+            else:
+                # No validation - set placeholders
+                vl_p, vl_y, vl_l = None, None, None
+                vl_acc, auc, eer, f1, val_loss = None, None, None, None, None
 
+            # Save history (for plotting etc.)
             self.history["train_loss"].append(tr_l.mean())
             self.history["train_acc"].append(tr_acc)
-            self.history["val_loss"].append(val_loss)
-            self.history["val_acc"].append(vl_acc)
-            self.history["val_auc"].append(auc)
-            self.history["val_eer"].append(eer)
-            self.history["val_f1"].append(f1)
+            if val_loss is not None:
+                self.history["val_loss"].append(val_loss)
+                self.history["val_acc"].append(vl_acc)
+                self.history["val_auc"].append(auc)
+                self.history["val_eer"].append(eer)
+                self.history["val_f1"].append(f1)
 
+            # Print progress (validation metrics only if available)
+            val_msg = (f"VAL: loss={val_loss:.4f} acc={vl_acc:.4f} "
+                       f"AUC={auc:.4f} EER={eer:.4f} F1={f1:.4f}") if val_loss is not None else "VAL: skipped"
             print(
                 f"Epoch {epoch:02d}  "
                 f"TRAIN: loss={tr_l.mean():.4f} acc={tr_acc:.4f}  "
-                f"VAL: loss={val_loss:.4f} acc={vl_acc:.4f} "
-                f"AUC={auc:.4f} EER={eer:.4f} F1={f1:.4f}")
+                f"{val_msg}")
 
-            # save best‐AUC as TORCHSCRIPT
-            if auc > self.best_auc:
+            # Save best model if validation is available and improved
+            if auc is not None and auc > self.best_auc:
                 self.best_auc = auc
                 ts_path = self.dir / "best.pt"
-                dummy_rgb = torch.randn(1, 3, 224, 224).to(self.dev)
+                dummy_img = torch.randn(1, 3, 224, 224).to(self.dev)
                 dummy_err = torch.randn(1, 3, 224, 224).to(self.dev)
                 self.model.eval()
                 try:
-                    ts_model = torch.jit.trace(self.model, (dummy_rgb, dummy_err))
+                    ts_model = torch.jit.trace(self.model, (dummy_img, dummy_err))
                     torch.jit.save(ts_model, ts_path)
                 except Exception as e:
                     print(f"TorchScript trace failed: {e}")
                     torch.save(self.model.state_dict(), ts_path)
                     print(f"Saved raw state_dict fallback at {ts_path}")
 
-            # EARLYSTOPPING HERE
-            if val_loss < best_val_loss - 1e-4:
-                best_val_loss     = val_loss
-                epochs_no_improve = 0
-            else:
-                epochs_no_improve += 1
-                if epochs_no_improve >= patience:
-                    print(f"Early stopping triggered (since there was no val-loss improvement for {patience} epochs).")
-                    break
+            # Early stopping only if validation loss is available
+            if val_loss is not None:
+                if val_loss < best_val_loss - 1e-4:
+                    best_val_loss     = val_loss
+                    epochs_no_improve = 0
+                else:
+                    epochs_no_improve += 1
+                    if epochs_no_improve >= patience:
+                        print(f"Early stopping triggered (no val-loss improvement for {patience} epochs).")
+                        break
 
         return self.history
 
@@ -500,7 +526,7 @@ def run_experiment(
 
     test_acc = accuracy_score(all_labels, (all_probs > 0.5).astype(int))
     test_auc = roc_auc_score(all_labels, all_probs)
-    test_f1  = f1_score(all_labels, (all_probs > 0.5).astype(int))
+    test_f1 = f1_score(all_labels, (all_probs > 0.5).astype(int))
     print(f"Held-out test set: ACC={test_acc:.4f} AUC={test_auc:.4f} F1={test_f1:.4f}")
 
     return mean_auc
@@ -510,11 +536,11 @@ def run_experiment(
 def run_hyperparameter_search(args):
     def objective(trial):
         print(f"\n~~~ [Optuna Trial {trial.number}] ~~~")
-        lr = trial.suggest_loguniform('lr', 1e-6, 1e-2)
-        batch = trial.suggest_categorical('batch', [16, 32, 64, 128])
-        weight_decay = trial.suggest_loguniform('weight_decay', 1e-6, 1e-2)
+        lr = trial.suggest_loguniform('lr', 1e-5, 5e-2)
+        batch = trial.suggest_categorical('batch', [16, 32, 64])
+        weight_decay = trial.suggest_loguniform('weight_decay', 1e-7, 5e-3)
         epochs = trial.suggest_int('epochs', 10, 30)
-        patience = 3
+        patience = 3 # fixed since this is pretty reliable for overfitting
 
         print(f"Params: lr={lr:.2e}, batch={batch}, weight_decay={weight_decay:.2e}, epochs={epochs}, patience={patience}")
 
@@ -528,8 +554,7 @@ def run_hyperparameter_search(args):
                 epochs=epochs,
                 patience=patience,
                 folds=2, # speed up tuning since anything more is unnecessary
-                seed=args.seed,
-            )
+                seed=args.seed)
             print(f"[Trial {trial.number}] mean AUC: {mean_auc:.4f}")
         except Exception as e:
             print(f"[Trial {trial.number}] Exception: {e}")
@@ -540,7 +565,7 @@ def run_hyperparameter_search(args):
 
     print("~~~ Starting Optuna hyperparameter tuning... ~~~")
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=15, show_progress_bar=True)
+    study.optimize(objective, n_trials=8, show_progress_bar=True)
 
     print("\n~~~ Tuning Complete ~~~")
     print("Best trial:")
@@ -579,29 +604,18 @@ def full_run_with_results(
     folds,
     seed,
     cache_dir=None,
-    save_dir="checkpoints"):    
+    save_dir="checkpoints"):
     set_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 80/20 stratified split
+    # 1. Split into train+val (80%) and held-out test (20%)
     full_ds = DeepFake3DFullDataset(
         preproc_root, recon_root, transform=None, cache_dir=cache_dir)
     labels = np.array([s["label"] for s in full_ds.samples])
     sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed)
     train_val_idx, test_idx = next(sss.split(np.zeros(len(labels)), labels))
 
-    # Held-out test loader
-    num_workers = min(2, os.cpu_count())
-    test_ds = DeepFake3DFullDataset(
-        preproc_root, recon_root,
-        transform=None, cache_dir=cache_dir,
-        indices=test_idx.tolist())
-    test_loader = DataLoader(
-        test_ds, batch_size=batch, shuffle=False,
-        num_workers=num_workers, pin_memory=True,
-        persistent_workers=True, prefetch_factor=2)
-
-    # K-fold on train+val
+    # 2. K-fold on the 80% train+val split
     fold_loaders = build_kfold_loaders(
         preproc_root, recon_root,
         n_splits=folds, batch_size=batch,
@@ -620,7 +634,7 @@ def full_run_with_results(
         trainer = Trainer(model, opt, sched, device, fold_dir)
         history = trainer.fit(tr_loader, vl_loader, epochs, patience)
 
-        # Loss plot
+        # Save plots
         epochs_list = list(range(1, len(history["train_loss"]) + 1))
         plt.figure()
         plt.plot(epochs_list, history["train_loss"], label="train loss")
@@ -629,7 +643,6 @@ def full_run_with_results(
         plt.legend(); plt.grid(True)
         plt.savefig(fold_dir / f"loss_vs_epoch.png"); plt.close()
 
-        # Acc plot
         plt.figure()
         plt.plot(epochs_list, history["train_acc"], label="train acc")
         plt.plot(epochs_list, history["val_acc"],   label="val acc")
@@ -637,7 +650,7 @@ def full_run_with_results(
         plt.legend(); plt.grid(True)
         plt.savefig(fold_dir / f"acc_vs_epoch.png"); plt.close()
 
-        # Validation results
+        # Metrics
         vl_p, vl_y, _ = trainer._iter(vl_loader, False)
         vl_pred = (vl_p > 0.5).astype(int)
         acc = accuracy_score(vl_y, vl_pred)
@@ -649,7 +662,7 @@ def full_run_with_results(
         val_accs.append(acc)
         fold_metrics.append(dict(train_acc=history["train_acc"][-1], val_acc=acc, auc=auc, eer=eer, f1=f1))
 
-        # Confusion matrix
+        # Confusion Matrix
         cm = confusion_matrix(vl_y, vl_pred)
         plt.figure()
         plt.imshow(cm, interpolation="nearest")
@@ -694,25 +707,61 @@ def full_run_with_results(
     else:
         print("No strong signs of overfitting.")
 
-    # Held-out Test Set Evaluation
-    print("\n~~~~~~~ Held-out Test Set Evaluation ~~~~~~~")
-    best_fold = int(np.argmax([m["auc"] for m in fold_metrics])) + 1
-    best_model_path = Path(save_dir) / f"fold_{best_fold}" / "best.pt"
-    try:
-        test_model = torch.jit.load(best_model_path).to(device)
-    except Exception:
-        test_model = TwoStreamDetector(errors_only=False).to(device)
-        test_model.load_state_dict(torch.load(best_model_path))
-    test_model.eval()
+    # 3. Retrain on full 80% train+val set
+    print("\n~~~~~~~ Training on full 80% train set ~~~~~~~")
+    num_workers = min(2, os.cpu_count())
+    full_train_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root, transform=build_aug(), cache_dir=cache_dir,
+        indices=train_val_idx.tolist())
+    full_train_loader = DataLoader(
+        full_train_ds, batch_size=batch, shuffle=True,
+        num_workers=num_workers, pin_memory=True,
+        persistent_workers=True, prefetch_factor=2)
 
-    all_probs, all_labels = [], []
-    for rgb, _, err, y in test_loader:
-        rgb, err = rgb.to(device), err.to(device)
-        with torch.no_grad():
-            logits = test_model(rgb, err)
+    model = TwoStreamDetector(errors_only=False)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+    retrain_dir = Path(save_dir) / "final_full_train"
+    retrain_dir.mkdir(exist_ok=True)
+    trainer = Trainer(model, opt, sched, device, retrain_dir)
+    history = trainer.fit(full_train_loader, None, epochs, patience)  # no val loader
+
+    # Save final retrained weights (TorchScript or state_dict)
+    final_model_path = retrain_dir / "final_model.pt"
+    try:
+        model.eval()
+        ts_model = torch.jit.trace(model, (torch.randn(1,3,224,224).to(device), torch.randn(1,3,224,224).to(device)))
+        torch.jit.save(ts_model, final_model_path)
+        print(f"[INFO] Saved TorchScript model at {final_model_path}")
+    except Exception as e:
+        torch.save(model.state_dict(), final_model_path)
+        print(f"[INFO] TorchScript trace failed ({e}), saved raw state_dict at {final_model_path}")
+
+    # 4. Final Evaluation on the held-out 20% test set
+    print("\n~~~~~~~ Final 20% Test Set Evaluation ~~~~~~~")
+    test_ds = DeepFake3DFullDataset(
+        preproc_root, recon_root,
+        transform=None, cache_dir=cache_dir,
+        indices=test_idx.tolist())
+    test_loader = DataLoader(
+        test_ds, batch_size=batch, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+        persistent_workers=True, prefetch_factor=2)
+
+    model.eval()
+    all_probs, all_labels, test_losses = [], [], []
+    with torch.no_grad():
+        for rgb, _, err, y in test_loader:
+            rgb, err, y = rgb.to(device), err.to(device), y.to(device)
+            logits = model(rgb, err)
+            loss = F.cross_entropy(logits, y)
             probs = F.softmax(logits, dim=1)[:, 1].cpu().numpy()
-        all_probs.append(probs); all_labels.append(y.numpy())
-    all_probs = np.concatenate(all_probs); all_labels = np.concatenate(all_labels)
+            test_losses.append(loss.item())
+            all_probs.append(probs)
+            all_labels.append(y.cpu().numpy())
+
+    all_probs = np.concatenate(all_probs)
+    all_labels = np.concatenate(all_labels)
 
     test_acc = accuracy_score(all_labels, (all_probs > 0.5).astype(int))
     test_auc = roc_auc_score(all_labels, all_probs)
@@ -720,18 +769,31 @@ def full_run_with_results(
     test_f1  = f1_score(all_labels, (all_probs > 0.5).astype(int))
     print(f"TEST: ACC={test_acc:.4f}  AUC={test_auc:.4f}  EER={test_eer:.4f}  F1={test_f1:.4f}")
 
+    # Plot and save test set loss curve
+    plt.figure()
+    plt.plot(range(1, len(test_losses) + 1), test_losses, marker='o', label="test loss")
+    plt.xlabel("Batch")
+    plt.ylabel("Loss")
+    plt.title("Held-out Test Set Loss per Batch")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(retrain_dir / "test_loss_per_batch.png")
+    plt.close()
+
     # Test confusion matrix
     cm = confusion_matrix(all_labels, (all_probs > 0.5).astype(int))
     plt.figure()
     plt.imshow(cm, interpolation="nearest")
     plt.title("Held-out Test Confusion Matrix"); plt.colorbar()
+    classes = ["Real", "Fake"]; ticks = np.arange(2)
     plt.xticks(ticks, classes); plt.yticks(ticks, classes)
     for i, j in itertools.product(range(2), range(2)):
         plt.text(j, i, cm[i, j], ha="center", va="center")
     plt.grid(False)
-    plt.savefig(Path(save_dir) / "test_confusion_matrix.png"); plt.close()
+    plt.savefig(retrain_dir / "test_confusion_matrix.png")
+    plt.close()
 
-    # Overfitting on test
+    # Overfitting check
     test_gap = val_accs.mean() - test_acc
     print(f"Val-test acc gap : {test_gap:.3f}")
     if test_gap > 0.10:
@@ -739,9 +801,19 @@ def full_run_with_results(
     else:
         print("No strong signs of overfitting on test.")
 
+    # Save test metrics as JSON
+    metrics_path = retrain_dir / "test_metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump({
+            "acc": float(test_acc),
+            "auc": float(test_auc),
+            "eer": float(test_eer),
+            "f1":  float(test_f1),
+            "confusion_matrix": cm.tolist()
+        }, f, indent=2)
+    print(f"[INFO] Saved final test metrics to {metrics_path}")
+
     return fold_metrics
-
-
 
 def load_best_optuna_params_if_available(args):
     """
@@ -756,7 +828,7 @@ def load_best_optuna_params_if_available(args):
     with open(best_json) as f:
         best = json.load(f).get("best_params", {})
 
-    # map our arg names to their CLI flags
+    # map our arg names to the usesrs CLI flags
     flag_map = {
         "epochs":      "--epochs",
         "batch":       "--batch",
@@ -776,7 +848,7 @@ def load_best_optuna_params_if_available(args):
 
     if overridden:
         print(f"\n[INFO] Loaded best Optuna trial from: {best_json}")
-        print(f"[INFO] Overriding CLI args with: {', '.join(overridden)}")
+        print(f"[INFO] Overriding CLI args that were not passed with: {', '.join(overridden)}")
 
     return args
 

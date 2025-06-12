@@ -1,6 +1,6 @@
 from __future__ import annotations
 """
-Full-model inference script.
+Full-model inference script (with Laplacian error, consistent with training).
 """
 
 import sys
@@ -14,7 +14,8 @@ import torch
 import torch.nn.functional as F
 import cv2
 
-MODEL_ROOT = Path("checkpoints")
+MODEL_ROOT = Path("checkpoints/final_full_train")
+FINAL_MODEL_PATH = MODEL_ROOT / "final_model.pt"
 IMG_SIZE = 224
 IMG_EXTS = (".png", ".jpg", ".jpeg")
 UPLOADS_ROOT = Path("uploads")
@@ -27,13 +28,11 @@ def error_exit(msg: str, code: int = 2):
     print(json.dumps({"error": msg}))
     sys.exit(code)
 
-
 def first_file_containing(dirpath: Path, substring: str) -> Path | None:
     for p in dirpath.rglob(f"*{substring}*"):
         if p.is_file() and p.suffix.lower() in IMG_EXTS:
             return p
     return None
-
 
 def load_tensor_img(path: Path, rgb: bool = True) -> torch.Tensor:
     flag = cv2.IMREAD_COLOR if rgb else cv2.IMREAD_GRAYSCALE
@@ -47,21 +46,43 @@ def load_tensor_img(path: Path, rgb: bool = True) -> torch.Tensor:
         img = img[..., None]
     return torch.from_numpy(img).permute(2, 0, 1)
 
-
 # Error map functions
-def rgb_diff(orig: torch.Tensor, rend: torch.Tensor) -> torch.Tensor:
-    return torch.abs(orig - rend).mean(0, keepdim=True)
+
+def laplacian_pyramid_diff(orig: torch.Tensor, rend: torch.Tensor) -> torch.Tensor:
+    """
+    Multi-scale Laplacian (edge+structure) difference between two images.
+    Returns a 1×H×W map capturing structure differences robustly.
+    """
+    gray_o = 0.2989 * orig[0] + 0.5870 * orig[1] + 0.1140 * orig[2]
+    gray_r = 0.2989 * rend[0] + 0.5870 * rend[1] + 0.1140 * rend[2]
+
+    def laplacian(img):
+        kernel = torch.tensor([[0, 1, 0],
+                               [1,-4, 1],
+                               [0, 1, 0]], dtype=img.dtype, device=img.device).view(1,1,3,3)
+        return F.conv2d(img[None, None], kernel, padding=1)[0,0]
+    levels = 9
+    diffs = []
+    o, r = gray_o, gray_r
+    for _ in range(levels):
+        l_o = laplacian(o)
+        l_r = laplacian(r)
+        diffs.append(torch.abs(l_o - l_r))
+        o = F.avg_pool2d(o[None, None], 2, stride=2)[0,0]
+        r = F.avg_pool2d(r[None, None], 2, stride=2)[0,0]
+        if o.shape != gray_o.shape:
+            o = F.interpolate(o[None, None], size=gray_o.shape, mode='bilinear', align_corners=False)[0,0]
+            r = F.interpolate(r[None, None], size=gray_o.shape, mode='bilinear', align_corners=False)[0,0]
+    diff = torch.stack(diffs).mean(0, keepdim=True)
+    return diff
 
 def depth_inconsistency(depth: torch.Tensor, k: int = 5) -> torch.Tensor:
     pad = k // 2
-    # pool per-channel
     local = F.avg_pool2d(depth.unsqueeze(0), k, stride=1, padding=pad)[0]
     dep_e = torch.abs(depth - local)
-    # now average channels exactly as training
     if dep_e.shape[0] > 1:
         dep_e = dep_e.mean(0, keepdim=True)
     return dep_e
-
 
 def normal_angle_error(normals: torch.Tensor, k: int = 5) -> torch.Tensor:
     pad = k // 2
@@ -84,7 +105,6 @@ def compute_saliency(
     sal = sal / (sal.max() + 1e-6)
     return sal.cpu().numpy()
 
-
 def save_saliency(orig: np.ndarray, smap: np.ndarray, out_base: Path) -> str:
     """Overlay heat-map on top of orig image and then save it."""
     out_path = out_base.with_suffix(".png")
@@ -98,28 +118,17 @@ def save_saliency(orig: np.ndarray, smap: np.ndarray, out_base: Path) -> str:
     cv2.imwrite(str(out_path), cv2.cvtColor(blended, cv2.COLOR_RGB2BGR))
     return str(out_path.resolve())
 
-def _load_single_model(pt: Path):
-    return torch.jit.load(str(pt), map_location=DEVICE)
+def load_final_model() -> torch.nn.Module:
+    if not FINAL_MODEL_PATH.is_file():
+        error_exit(f"Final model checkpoint not found: {FINAL_MODEL_PATH}")
+    model = torch.jit.load(str(FINAL_MODEL_PATH), map_location=DEVICE)
+    model.eval()
+    return model
 
-def load_models() -> List[torch.nn.Module]:
-    models: List[torch.nn.Module] = []
-    if not MODEL_ROOT.is_dir():
-        error_exit(f"Checkpoint directory not found: {MODEL_ROOT}")
-    for fold_dir in sorted(MODEL_ROOT.glob("fold_*")):
-        pt = fold_dir / "best.pt"
-        if pt.is_file():
-            m = _load_single_model(pt).to(DEVICE)
-            m.eval()
-            models.append(m)
-    if not models:
-        error_exit(f"No models found under {MODEL_ROOT}")
-    return models
-
-def predict(models: List[torch.nn.Module], rgb: torch.Tensor, err: torch.Tensor) -> Tuple[float, float]:
-    """Return the probabilties of fake or real averaged over all models (folds)."""
+def predict_final(model: torch.nn.Module, rgb: torch.Tensor, err: torch.Tensor) -> Tuple[float, float]:
+    """Return the probabilities of fake or real from the final model."""
     with torch.no_grad():
-        ps = [F.softmax(m(rgb, err), dim=1) for m in models]
-        prob = torch.stack(ps).mean(0)[0]
+        prob = F.softmax(model(rgb, err), dim=1)[0]
         return float(prob[0]), float(prob[1])
 
 def main(preproc_dir: Path, deca_dir: Path):
@@ -155,20 +164,20 @@ def main(preproc_dir: Path, deca_dir: Path):
     normals_r = _resize(normals_orig)
     rend_r = _resize(rend_orig)
 
-    # Compute error maps at original‐crop resolution
-    rgb_e = rgb_diff(rgb_orig, rend_r)
+    # --- Compute error maps at original-crop resolution ---
+    lap_e = laplacian_pyramid_diff(rgb_orig, rend_r)
     dep_e = depth_inconsistency(depth_r)
     norm_e = normal_angle_error(normals_r)
 
-    # Build the error stack
-    err_stack = torch.cat([rgb_e, dep_e, norm_e], dim=0)
+    # --- Build the error stack (Laplacian, Depth, Normals) ---
+    err_stack = torch.cat([lap_e, dep_e, norm_e], dim=0)
 
     rgb_input = rgb_orig.unsqueeze(0).to(DEVICE)
     err_input = err_stack.unsqueeze(0).to(DEVICE)
 
-    # Ensemble prediction
-    models = load_models()
-    prob_fake, prob_real = predict(models, rgb_input, err_input)
+    # Final model prediction
+    model = load_final_model()
+    prob_fake, prob_real = predict_final(model, rgb_input, err_input)
     is_fake    = prob_fake >= prob_real
     confidence = prob_fake if is_fake else prob_real
 
@@ -177,7 +186,7 @@ def main(preproc_dir: Path, deca_dir: Path):
     try:
         orig_np = (rgb_orig.permute(1,2,0).cpu().numpy() * 255).astype(np.uint8)
         cls_idx = 0 if is_fake else 1
-        sal = compute_saliency(rgb_input, err_input, models[0], cls_idx)
+        sal = compute_saliency(rgb_input, err_input, model, cls_idx)
         out_base = preproc_dir / f"{face_crop.stem}_saliency"
         saliency_path = save_saliency(orig_np, sal, out_base)
     except Exception as e:
@@ -195,10 +204,9 @@ def main(preproc_dir: Path, deca_dir: Path):
     print(json.dumps(result))
     sys.stdout.flush()
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Full-model inference (2D + 3D) with saliency and fold-ensemble")
+        description="Full-model inference (2D + 3D) with saliency and final-model prediction (Laplacian error version)")
     parser.add_argument("preproc_dir", help="Directory with the 2D face crop")
     parser.add_argument("deca_dir", help="Directory containing DECA outputs (depth_, normals_, orig_rendered_)")
     args = parser.parse_args()

@@ -178,12 +178,13 @@ The full model achieves higher performance than the baseline model. The full mod
     ```
 - This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
 - The average performance over all five folds when we ran testing restulted in the following metrics:
-    - Mean Accuracy: 0.868
-    - Mean F1 Score: 0.861
-    - Mean ROC-AUC: 0.968
-    - Mean Error: 0.0861
+    - Mean Accuracy: 0.894
+    - Mean F1 Score: 0.894
+    - Mean ROC-AUC: 0.971
+    - Mean Equal Error Rate: 0.0873
 
 ### 4.2 Full Model
+- Can make use of the predict_env to run this model, requirements found in 'requirements_predict.txt' (ignore name-mismatch it still works)
 - The full model can be retrained by running (make sure to populate the environment before retraining - see steps 3.4-3.5 or 2.5-2.6):
     ```bash
     python project_name/models/two_stream_model.py --preproc-root data/preprocessed_no_background --recon-root data/3DRecon
@@ -191,10 +192,10 @@ The full model achieves higher performance than the baseline model. The full mod
 - These arguments can be changed to any directory, if you would like to retrain your model using your own data. It will load the best hyperparameters we found through hyperparameter tuning automatically. These can be overridden by parsing the hyperparameter arguments of your choosing.
 - This includes running k-fold cross validation with k=5 in order to monitor the performcance across different folds to check for overfitting
 - The average performance over all five folds when we ran testing restulted in the following metrics:
-    - Mean Accuracy: 0.951
-    - Mean F1 Score: 0.951
-    - Mean ROC-AUC: 0.987
-    - Mean Error: 0.0424
+    - Mean Accuracy: 0.948
+    - Mean F1 Score: 0.949
+    - Mean ROC-AUC: 0.988
+    - Mean Equal Error Rate: 0.0483
     
 
 ## 5. Justifications and Design Choices

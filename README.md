@@ -168,7 +168,7 @@ The script will:
    - Manage the startup and shutdown of these services for the user
 
 ## 4. Overview of Training
-The full model achieves higher performance than the baseline model. The full model makes use of 3D reconstruction of all the sample data and uses it to compute error maps in comparison to the 2D image to make accurate predictions. The baseline model is only trained on the 2D images, and is weaker in detecting depth and angle discrepancies in the faces (which 3D reconstruction is strong for). If you would like to retrain the models, please make sure to have all the data by completing the populate step (guided in the installation guides). Arguments to run or tune the models can be found in detail in the code. For the full model, we have tuned hyperparameters available to use; these were obtained with Optuna and provided the best results for us. 
+The full model achieves higher performance than the baseline model. The full model makes use of 3D reconstruction of all the sample data and uses it to compute error maps in comparison to the 2D image to make accurate predictions. The baseline model is only trained on the 2D images, and is weaker in detecting depth and angle discrepancies in the faces (which 3D reconstruction is strong for). If you would like to retrain the models, please make sure to have all the data by completing the populate step (make sure to populate the environment before retraining, see steps 3.4-3.5 or 2.5-2.6). Arguments to run or tune the models can be found in detail in the code. For the full model, we have tuned hyperparameters available to use; these were obtained with Optuna and provided the best results for us. 
 
 ### 4.1 Baseline
 - The baseline model can be retrained by running:
@@ -184,7 +184,7 @@ The full model achieves higher performance than the baseline model. The full mod
 
 ### 4.2 Full Model
 - Can make use of the predict_env to run this model, requirements found in 'requirements_predict.txt' (ignore name-mismatch, it still works)
-- The full model can be retrained by running (make sure to populate the environment before retraining, see steps 3.4-3.5 or 2.5-2.6):
+- The full model can be retrained by running:
     ```bash
     python project_name/models/two_stream_model.py --preproc-root data/preprocessed_no_background --recon-root data/3DRecon
     ```
